@@ -1,7 +1,6 @@
 """Behavioral tests against temporary target projects, never the source package."""
 import base64
 import copy
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -17,17 +16,21 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'tooling/yunxia.py'
 sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia.project import workflow as yx
-LEGACY = ROOT/'tooling/tests/fixtures/legacy'
+from yunxia.catalog import Catalog
+from yunxia import lifecycle
+from support import copy_catalog, add_protocol, approve, publish, CURRENT_VERSION
 
 
 
 class YunXiaWorkflow(unittest.TestCase):
     def setUp(self):
         yx.configure_unit('main')
-        fixture_patch = patch.object(yx, 'SKILL', LEGACY)
-        fixture_patch.start(); self.addCleanup(fixture_patch.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        self.catalog_root = copy_catalog(Path(self.temp.name)/'catalog')
+        self.ref = yx.reference(Catalog(self.catalog_root).select('yunxia-license', CURRENT_VERSION))
+        environment = patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(self.catalog_root))
+        environment.start(); self.addCleanup(environment.stop)
         self.root = Path(self.temp.name) / 'project'
         self.root.mkdir()
         self.write('src/main.py', 'print("hello")\n')
@@ -41,8 +44,8 @@ class YunXiaWorkflow(unittest.TestCase):
         with yx.lock(self.root):
             result = yx.scan(self.root)
             if yx.load_state(self.root)['selected_agreement'] is None:
-                ref = yx.catalog().recommended
-                yx.select_agreement(self.root, ref['agreement_id'], ref['version'], ref['text_revision'])
+                ref = self.ref
+                yx.select_agreement(self.root, ref['agreement_id'], ref['version'])
                 result['selected_agreement'] = ref
             return result
 
@@ -57,7 +60,7 @@ class YunXiaWorkflow(unittest.TestCase):
         return {'confirmed_by': 'fixture user', 'basis': 'PRIVATE-AUTHORITY-EVIDENCE',
                 'identity': {'project_name': 'Sample', 'licensor': 'Sample author', 'role': 'author'},
                 'delivery': {'audience': 'recipients', 'description': 'source archive'},
-                'assets': [{'paths': paths or ['src/main.py'], 'disposition': 'yunxia',
+                'assets': [{'paths': paths or ['src/main.py'], 'disposition': 'selected',
                             'origin': 'human', 'basis': 'PRIVATE-SOURCE-EVIDENCE'}]}
 
     def adopt(self):
@@ -78,8 +81,8 @@ class YunXiaWorkflow(unittest.TestCase):
         self.assertEqual(result.exception.code, code)
 
     def cli(self, *args):
-        return subprocess.run([sys.executable, '-B', str(SCRIPT), '--root', str(self.root), *args],
-                              capture_output=True, text=True, env=dict(os.environ, YUNXIA_CATALOG_ROOT=str(LEGACY/'assets/agreements')))
+        return subprocess.run([sys.executable, '-B', str(SCRIPT), 'project', '--root', str(self.root), *args],
+                              capture_output=True, text=True, env=dict(os.environ, YUNXIA_CATALOG_ROOT=str(self.catalog_root)))
 
     def test_read_only_scan_does_not_create_state(self):
         result = yx.scan(self.root, persist=False)
@@ -99,8 +102,8 @@ class YunXiaWorkflow(unittest.TestCase):
 
     def test_complete_local_adoption_cli_and_license_bytes(self):
         scan = json.loads(self.cli('scan').stdout)
-        ref = yx.catalog().recommended
-        chosen = self.cli('select', '--agreement', ref['agreement_id'], '--version', ref['version'], '--revision', ref['text_revision'])
+        ref = self.ref
+        chosen = self.cli('select', '--agreement', ref['agreement_id'], '--version', ref['version'])
         self.assertEqual(chosen.returncode, 0, chosen.stdout)
         payload = self.facts()
         payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': scan['snapshot_id'], 'agreement': ref}
@@ -112,7 +115,7 @@ class YunXiaWorkflow(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         result = self.cli('verify')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual((self.root / 'LICENSE.txt').read_bytes(), yx.license_bytes())
+        self.assertEqual((self.root / 'LICENSE.txt').read_bytes(), yx.license_bytes(self.ref))
         self.assertEqual(json.loads(result.stdout)['legal_assessment'], 'not_performed')
 
     def test_adoption_requires_explicit_scope_snapshot_and_draft_acceptance(self):
@@ -171,7 +174,7 @@ class YunXiaWorkflow(unittest.TestCase):
         self.answer(payload)
         self.generate('adopt')
         self.assertEqual((self.root / 'LICENSE').read_text(), original)
-        self.assertEqual((self.root / 'LICENSE.yunxia-0.9.3.txt').read_bytes(), yx.license_bytes())
+        self.assertEqual((self.root / 'LICENSE.yunxia-0.9.3.txt').read_bytes(), yx.license_bytes(self.ref))
         self.assertTrue((self.root / 'THIRD-PARTY.md').exists())
 
     def test_changed_notice_invalidates_linked_assets(self):
@@ -426,10 +429,9 @@ class YunXiaWorkflow(unittest.TestCase):
 
     def test_bundled_license_tampering_is_rejected(self):
         self.scan()
-        fake = Path(self.temp.name) / 'skill'
-        shutil.copytree(yx.SKILL / 'assets', fake / 'assets')
-        (fake / 'assets/agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/text.txt').write_text('changed')
-        with patch.object(yx, 'SKILL', fake):
+        fake = self.catalog_copy()
+        (fake / 'releases/yunxia-license/0.9.3-draft.2/text.txt').write_text('changed')
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.assert_error('AGREEMENT_TEXT_HASH_MISMATCH', self.generate)
 
     def test_generated_file_symlink_does_not_write_outside_project(self):
@@ -455,11 +457,11 @@ class YunXiaWorkflow(unittest.TestCase):
 
     def select(self, ref):
         with yx.lock(self.root):
-            return yx.select_agreement(self.root, ref['agreement_id'], ref['version'], ref['text_revision'])
+            return yx.select_agreement(self.root, ref['agreement_id'], ref['version'])
 
     def catalog_copy(self):
-        fake = Path(self.temp.name) / 'catalog-skill'
-        shutil.copytree(yx.SKILL / 'assets', fake / 'assets')
+        fake = Path(self.temp.name) / 'catalog-copy'
+        shutil.copytree(self.catalog_root, fake)
         return fake
 
     def test_adoption_without_protocol_binding_is_rejected(self):
@@ -474,7 +476,7 @@ class YunXiaWorkflow(unittest.TestCase):
             yx.scan(self.root)
         self.assertEqual(yx.questions(self.root)['questions'][0]['id'], 'AGREEMENT_NOT_SELECTED')
         self.assert_error('AGREEMENT_NOT_SELECTED', self.generate)
-        ref = yx.catalog().recommended
+        ref = self.ref
         self.select(ref)
         self.assertNotIn('adoption', yx.load_state(self.root))
 
@@ -483,12 +485,12 @@ class YunXiaWorkflow(unittest.TestCase):
         original = (self.root / yx.STATE).read_bytes()
         license_before = (self.root / 'LICENSE.txt').read_bytes()
         fake = self.catalog_copy()
-        index = fake / 'assets/agreements/catalog.json'
-        data = json.loads(index.read_text())
-        with patch.object(yx, 'SKILL', fake):
-            old = yx.catalog().select('yunxia-license', '0.9.2', 'original')
-            data['recommended'] = yx.reference(old)
-            index.write_bytes(yx.encoded(data))
+        lifecycle.revise(fake, 'yunxia-license', CURRENT_VERSION, '1.0.0')
+        approve(fake, 'yunxia-license')
+        lifecycle.freeze(fake, 'yunxia-license', '1.0.0-rc.1', 'Fictional release test')
+        publish(fake, 'yunxia-license')
+        lifecycle.recommend(fake, 'yunxia-license', '1.0.0', 'Fixture recommendation')
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.assertEqual(yx.questions(self.root)['questions'], [])
             self.generate('adopt')
             self.assertTrue(yx.verify(self.root)['structure_valid'])
@@ -499,24 +501,28 @@ class YunXiaWorkflow(unittest.TestCase):
         self.adopt()
         before = (self.root / yx.STATE).read_bytes()
         fake = self.catalog_copy()
-        folder = fake / 'assets/agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1'
+        folder = fake / 'releases/yunxia-license/0.9.3-draft.2'
         body = b'TEST ONLY: changed terms\n'
         (folder / 'text.txt').write_bytes(body)
-        manifest = json.loads((folder / 'manifest.json').read_text())
+        manifest = json.loads((folder / 'release.json').read_text())
         manifest['sha256'] = yx.digest(body)
-        (folder / 'manifest.json').write_bytes(yx.encoded(manifest))
-        index = fake / 'assets/agreements/catalog.json'
-        data = json.loads(index.read_text()); data['recommended'] = yx.reference(manifest)
-        index.write_bytes(yx.encoded(data))
-        with patch.object(yx, 'SKILL', fake):
+        manifest['files']['text.txt'] = manifest['sha256']
+        (folder / 'release.json').write_bytes(yx.encoded(manifest))
+        registry = fake/'tooling/src/yunxia/adapters/support.json'
+        data = json.loads(registry.read_text())
+        for row in data['supported']:
+            if row['agreement'] == self.ref:
+                row['agreement'] = yx.reference(manifest)
+        registry.write_bytes(yx.encoded(data))
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.assert_error('AGREEMENT_PIN_MISMATCH', self.generate, 'adopt')
             self.assert_error('AGREEMENT_PIN_MISMATCH', yx.verify, self.root)
         self.assertEqual((self.root / yx.STATE).read_bytes(), before)
 
-    def test_different_revision_requires_its_own_adoption(self):
+    def test_different_version_requires_its_own_adoption(self):
         self.adopt()
         old_adoption = copy.deepcopy(yx.load_state(self.root)['adoption'])
-        old = yx.catalog().select('yunxia-license', '0.9.3', 'pre-naming')
+        old = yx.catalog().select('yunxia-license', '0.9.3-draft.1')
         self.select(yx.reference(old))
         self.assert_error('ADOPTION_NOT_CONFIRMED', self.generate, 'adopt')
         self.assertIn('GENERATION_AGREEMENT_MISMATCH', {i['code'] for i in yx.verify(self.root)['issues']})
@@ -527,7 +533,7 @@ class YunXiaWorkflow(unittest.TestCase):
 
     def test_historical_version_can_be_selected_and_verified(self):
         snap = self.scan()
-        old = yx.catalog().select('yunxia-license', '0.9.2', 'original')
+        old = yx.catalog().select('yunxia-license', '0.9.2-draft.1')
         self.select(yx.reference(old))
         payload = self.facts()
         payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': snap['snapshot_id']}
@@ -538,7 +544,7 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_switch_and_confirm_archives_previous_adoption_and_material(self):
         self.adopt()
         old = (self.root / 'PROJECT-RIGHTS.md').read_bytes()
-        entry = yx.catalog().select('yunxia-license', '0.9.2', 'original')
+        entry = yx.catalog().select('yunxia-license', '0.9.2-draft.1')
         self.select(yx.reference(entry))
         payload = self.facts()
         payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': self.scan()['snapshot_id']}
@@ -549,55 +555,14 @@ class YunXiaWorkflow(unittest.TestCase):
         self.assertEqual(base64.b64decode(entry['content_base64']['PROJECT-RIGHTS.md']), old)
         self.assertTrue(yx.verify(self.root)['structure_valid'])
 
-    def test_state_v1_migration_preserves_evidence_without_inventing_binding(self):
-        self.adopt()
-        state = yx.load_state(self.root)
-        state['state_version'] = 1
-        state.pop('selected_agreement'); state.pop('managed_outputs')
-        state['adoption'].pop('agreement')
-        for g in state['generations'].values():
-            g.pop('agreement')
-        self.write(yx.STATE, json.dumps(state))
-        before = (self.root / yx.STATE).read_bytes()
-        license_before = (self.root / 'LICENSE.txt').read_bytes()
-        self.assert_error('STATE_MIGRATION_REQUIRED', yx.scan, self.root, persist=False)
-        process = self.cli('migrate-state')
-        self.assertEqual(process.returncode, 0, process.stdout)
-        migrated = yx.load_state(self.root)
-        self.assertIsNone(migrated['selected_agreement'])
-        self.assertNotIn('adoption', migrated)
-        self.assertEqual(migrated['answers'], state['answers'])
-        history = migrated['history'][-1]
-        self.assertEqual(base64.b64decode(history['original_state_base64']), before)
-        self.assertEqual((self.root / 'LICENSE.txt').read_bytes(), license_before)
-        self.select(yx.catalog().recommended)
-        self.assert_error('ADOPTION_NOT_CONFIRMED', self.generate, 'adopt')
-        after = (self.root / yx.STATE).read_bytes()
-        self.assertFalse(json.loads(self.cli('migrate-state').stdout)['migrated'])
-        self.assertEqual((self.root / yx.STATE).read_bytes(), after)
 
-    def add_fixture_protocol(self, fake, kind='license', renderer='scope-license-v1'):
-        catalog_root = fake / 'assets/agreements'
-        folder = catalog_root / 'fixture/versions/1/test'
-        folder.mkdir(parents=True)
-        body = b'Fictional test protocol only.\n'
-        (folder / 'text.txt').write_bytes(body)
-        manifest = {'manifest_version': 1, 'agreement_id': 'fixture', 'version': '1', 'text_revision': 'test',
-                    'sha256': yx.digest(body), 'display_name': 'Fixture protocol', 'kind': kind,
-                    'status': 'test-only', 'text_path': 'text.txt', 'renderer': renderer,
-                    'capabilities': ['inspect', 'draft', 'adopt', 'verify'] if kind == 'license' else ['inspect'],
-                    'output_name': 'LICENSE.fixture-1.txt'}
-        (folder / 'manifest.json').write_bytes(yx.encoded(manifest))
-        (catalog_root / 'fixture/agreement.json').write_bytes(yx.encoded({'agreement_id': 'fixture', 'versions': ['fixture/versions/1/test/manifest.json']}))
-        index = json.loads((catalog_root / 'catalog.json').read_text())
-        index['agreements'].append('fixture/agreement.json')
-        (catalog_root / 'catalog.json').write_bytes(yx.encoded(index))
-        return yx.reference(manifest)
+    def add_fixture_protocol(self, fake, kind='license', renderer='scope-license-v1', released=False):
+        return add_protocol(fake, kind=kind, supported=renderer is not None, released=released)
 
     def test_another_license_uses_catalog_data_without_changing_code(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake)
-        with patch.object(yx, 'SKILL', fake):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             snap = self.scan()
             self.select(ref)
             payload = self.facts(); payload['assets'][0]['disposition'] = 'selected'
@@ -610,57 +575,57 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_unsupported_type_is_inspectable_but_not_generated_as_license(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake, kind='nda', renderer=None)
-        with patch.object(yx, 'SKILL', fake):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.scan(); self.select(ref)
             self.assertEqual(yx.selected(yx.load_state(self.root))['kind'], 'nda')
             self.assert_error('UNSUPPORTED_AGREEMENT_WORKFLOW', self.generate)
 
-    def test_duplicate_catalog_identity_and_traversal_are_rejected(self):
+    def test_catalog_identity_and_symlinks_are_rejected(self):
         fake = self.catalog_copy()
-        p = fake / 'assets/agreements/yunxia-license/agreement.json'
-        data = json.loads(p.read_text())
-        data['versions'].append(data['versions'][0]); p.write_bytes(yx.encoded(data))
-        with patch.object(yx, 'SKILL', fake):
-            self.assert_error('DUPLICATE_AGREEMENT_VERSION', yx.catalog)
-        data['versions'][-1] = '../outside.json'; p.write_bytes(yx.encoded(data))
-        with patch.object(yx, 'SKILL', fake):
+        p = fake / 'releases/yunxia-license/0.9.3-draft.2/release.json'
+        data = json.loads(p.read_text()); data['version'] = 'wrong-version'
+        p.write_bytes(yx.encoded(data))
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+            self.assert_error('RELEASE_IDENTITY_MISMATCH', yx.catalog)
+        data['version'] = CURRENT_VERSION; p.write_bytes(yx.encoded(data))
+        text = p.parent / 'text.txt'; body = text.read_bytes(); text.unlink()
+        outside = Path(self.temp.name)/'outside.txt'; outside.write_bytes(body); text.symlink_to(outside)
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.assert_error('CATALOG_PATH_INVALID', yx.catalog)
 
     def test_tampered_generation_binding_is_not_accepted(self):
         self.adopt()
         state = yx.load_state(self.root)
-        state['generations']['adopt']['agreement'] = yx.reference(yx.catalog().select('yunxia-license', '0.9.2', 'original'))
+        state['generations']['adopt']['agreement'] = yx.reference(yx.catalog().select('yunxia-license', '0.9.2-draft.1'))
         self.write(yx.STATE, json.dumps(state))
         self.assertIn('GENERATION_AGREEMENT_MISMATCH', {i['code'] for i in yx.verify(self.root)['issues']})
 
     def test_inspect_only_protocol_needs_no_license_output_filename(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake, kind='nda', renderer=None)
-        p = fake / 'assets/agreements/fixture/versions/1/test/manifest.json'
-        manifest = json.loads(p.read_text()); manifest.pop('output_name')
-        p.write_bytes(yx.encoded(manifest))
-        with patch.object(yx, 'SKILL', fake):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.scan(); self.select(ref)
             self.assertEqual(yx.catalog().resolve(ref)['_text'], b'Fictional test protocol only.\n')
+            self.assertIsNone(yx.catalog().resolve(ref)['output_name'])
             self.assert_error('UNSUPPORTED_AGREEMENT_WORKFLOW', self.generate)
 
     def test_metadata_cannot_advertise_unimplemented_generation(self):
         fake = self.catalog_copy()
-        self.add_fixture_protocol(fake, kind='nda', renderer=None)
-        p = fake / 'assets/agreements/fixture/versions/1/test/manifest.json'
-        manifest = json.loads(p.read_text()); manifest['capabilities'].append('adopt')
+        ref = self.add_fixture_protocol(fake, kind='nda', renderer=None)
+        p = fake / 'releases/fixture/1.0.0-rc.1/release.json'
+        manifest = json.loads(p.read_text()); manifest['capabilities'] = ['adopt']
         p.write_bytes(yx.encoded(manifest))
-        with patch.object(yx, 'SKILL', fake):
-            self.assert_error('CATALOG_WORKFLOW_UNSUPPORTED', yx.catalog)
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+            self.assert_error('RELEASE_CONTAINS_ADAPTER_CONFIG', yx.catalog)
 
     def test_nonstandard_catalog_json_is_rejected(self):
         fake = self.catalog_copy()
-        p = fake / 'assets/agreements/catalog.json'
+        p = fake / 'releases/yunxia-license/0.9.3-draft.2/release.json'
         original = p.read_bytes()
-        with patch.object(yx, 'SKILL', fake):
-            data = json.loads(original); data['catalog_version'] = True
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+            data = json.loads(original); data['format_version'] = True
             p.write_bytes(yx.encoded(data))
-            self.assert_error('CATALOG_FORMAT', yx.catalog)
+            self.assert_error('RELEASE_FORMAT', yx.catalog)
             data = json.loads(original); data['unexpected'] = float('nan')
             p.write_text(json.dumps(data))
             self.assert_error('CATALOG_FORMAT', yx.catalog)
@@ -684,15 +649,6 @@ class YunXiaWorkflow(unittest.TestCase):
         self.write(yx.STATE, json.dumps(state))
         self.assert_error('INVALID_STATE', yx.verify, self.root)
 
-    def test_corrupt_legacy_state_is_not_silently_migrated(self):
-        self.scan()
-        state = yx.load_state(self.root); state['state_version'] = 1; state.pop('snapshot')
-        self.write(yx.STATE, json.dumps(state)); before = (self.root / yx.STATE).read_bytes()
-        result = self.cli('migrate-state')
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual(json.loads(result.stdout)['error'], 'INVALID_STATE')
-        self.assertEqual(result.stderr, '')
-        self.assertEqual((self.root / yx.STATE).read_bytes(), before)
 
     def test_switch_cannot_archive_edited_or_missing_previous_full_text(self):
         self.write('LICENSE', 'Existing upstream fixture\n')
@@ -704,7 +660,7 @@ class YunXiaWorkflow(unittest.TestCase):
         self.answer(payload); self.generate('adopt')
         old_path = self.root / 'LICENSE.yunxia-0.9.3.txt'
         original = old_path.read_bytes()
-        entry = yx.catalog().select('yunxia-license', '0.9.2', 'original')
+        entry = yx.catalog().select('yunxia-license', '0.9.2-draft.1')
         self.select(yx.reference(entry))
         self.answer(payload)
         before = (self.root / yx.STATE).read_bytes()
@@ -755,14 +711,11 @@ class YunXiaWorkflow(unittest.TestCase):
 
     def test_released_protocol_does_not_require_accepting_it_as_a_draft(self):
         fake = self.catalog_copy()
-        ref = self.add_fixture_protocol(fake)
-        p = fake / 'assets/agreements/fixture/versions/1/test/manifest.json'
-        manifest = json.loads(p.read_text()); manifest['status'] = 'released'
-        p.write_bytes(yx.encoded(manifest))
-        with patch.object(yx, 'SKILL', fake):
+        ref = self.add_fixture_protocol(fake, released=True)
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             snap = self.scan(); self.select(ref)
-            payload = self.facts(); payload['assets'][0]['disposition'] = 'selected'
-            payload['adoption'] = {'authorized': True, 'accept_draft': False, 'date': '2026-10-24', 'snapshot_id': snap['snapshot_id']}
+            payload = self.facts()
+            payload['adoption'] = {'authorized': True, 'accept_draft': False, 'date': '2026-10-30', 'snapshot_id': snap['snapshot_id']}
             self.answer(payload); self.generate('adopt')
             self.assertFalse(yx.load_state(self.root)['adoption']['accept_draft'])
             self.assertTrue(yx.verify(self.root)['structure_valid'])
@@ -794,6 +747,28 @@ class YunXiaWorkflow(unittest.TestCase):
         state['history'].append({'event': 'superseded_generation', 'generation': copy.deepcopy(state['generations']['adopt']), 'content_base64': {}})
         self.write(yx.STATE, json.dumps(state))
         self.assertIn('HISTORICAL_GENERATION_INVALID', {i['code'] for i in yx.verify(self.root)['issues']})
+
+    def test_current_generation_requires_adapter_provenance(self):
+        self.adopt()
+        state=yx.load_state(self.root);state['generations']['adopt'].pop('adapter')
+        self.write(yx.STATE,json.dumps(state));before=(self.root/yx.STATE).read_bytes()
+        self.assert_error('INVALID_STATE',yx.verify,self.root)
+        self.assertEqual((self.root/yx.STATE).read_bytes(),before)
+
+    def test_current_state_survives_tool_version_update_without_new_authorization(self):
+        self.adopt();before=(self.root/yx.STATE).read_bytes()
+        with patch.object(yx,'VERSION','next-tool-test'):
+            result=yx.verify(self.root)
+            self.assertTrue(result['structure_valid'])
+            self.assertTrue(result['adapter_update_available'])
+            self.assertEqual(yx.questions(self.root)['questions'],[])
+        self.assertEqual((self.root/yx.STATE).read_bytes(),before)
+
+    def test_removed_migration_command_cannot_change_project_state(self):
+        self.scan();before=(self.root/yx.STATE).read_bytes()
+        result=self.cli('migrate-state')
+        self.assertEqual(result.returncode,2)
+        self.assertEqual((self.root/yx.STATE).read_bytes(),before)
 
 
 if __name__ == '__main__':

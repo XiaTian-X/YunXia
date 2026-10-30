@@ -5,7 +5,8 @@ import re
 import subprocess
 import sys
 from urllib.parse import unquote
-from .catalog import Catalog, CatalogError, read_json, supports
+from .catalog import Catalog, supports
+from .common import CatalogError, read_json
 from .lifecycle import inspect
 
 

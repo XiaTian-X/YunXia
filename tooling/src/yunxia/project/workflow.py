@@ -5,7 +5,6 @@ import base64
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 import fnmatch
-import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -16,11 +15,11 @@ import tempfile
 import tomllib
 import zipfile
 
-from ..catalog import Catalog, CatalogError, reference, validate_reference, default_root
+from ..catalog import Catalog, reference, validate_reference, default_root
+from ..common import CatalogError, sha256 as digest, json_bytes as encoded, canonical_sha256 as fingerprint
 from .. import VERSION
 
 STATE_VERSION = 3
-SKILL = None  # Explicit override retained for isolated migration fixtures.
 UNIT = 'main'
 OUTPUT_BASE = ''
 DRAFT_BASE = '.yunxia/draft/'
@@ -42,18 +41,6 @@ class WorkflowError(Exception):
     def __init__(self, code, paths=None):
         self.code, self.paths = code, paths or []
         super().__init__(code)
-
-
-def digest(value):
-    return hashlib.sha256(value).hexdigest()
-
-
-def encoded(value):
-    return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + '\n').encode()
-
-
-def fingerprint(value):
-    return digest(encoded(value))
 
 
 def now():
@@ -147,7 +134,7 @@ def output_path(rel):
 
 
 def catalog():
-    return Catalog(local(SKILL, 'assets/agreements') if SKILL is not None else default_root())
+    return Catalog(default_root())
 
 
 def selected(state, capability=None):
@@ -164,7 +151,7 @@ def adoption_valid(state):
     a = state.get('adoption', {})
     return (state.get('selected_agreement') is not None and a.get('agreement') == state['selected_agreement']
             and a.get('snapshot_id') == fingerprint(state['snapshot']) and a.get('context_id') == context_id(state)
-            and (a.get('accept_draft') is True or selected(state)['status'] in ('released', 'archived-release')))
+            and (a.get('accept_draft') is True or selected(state)['status'] == 'released'))
 
 
 @contextmanager
@@ -336,32 +323,28 @@ def set_scope(root, paths):
     return {'changed':True,'scope':paths,'scan_required':True}
 
 
-def load_state(root, allow_legacy=False):
+def load_state(root):
     if local(root, JOURNAL).exists():
         raise WorkflowError('RECOVERY_REQUIRED', [JOURNAL])
     path = local(root, STATE)
     if not path.exists():
         return fresh()
     state = read_json(path)
-    if isinstance(state, dict) and 'scope' in state:
-        validate_scope(state['scope'])
-    if not isinstance(state, dict) or type(state.get('state_version')) is not int or state.get('state_version') not in (1, 2, STATE_VERSION):
+    if not isinstance(state, dict) or type(state.get('state_version')) is not int or state.get('state_version') != STATE_VERSION:
         raise WorkflowError('UNSUPPORTED_STATE_VERSION')
-    legacy = state['state_version'] == 1
-    if state['state_version'] != STATE_VERSION and not allow_legacy:
-        raise WorkflowError('STATE_MIGRATION_REQUIRED')
-    if state['state_version'] == STATE_VERSION and state.get('unit_id') != UNIT:
+    if 'scope' in state:
+        validate_scope(state['scope'])
+    if state.get('unit_id') != UNIT:
         raise WorkflowError('UNIT_STATE_MISMATCH')
     if not {'snapshot', 'tool_version', 'answers', 'profile', 'history', 'generations'} <= state.keys() or not nonempty(state['tool_version']):
         raise WorkflowError('INVALID_STATE')
-    if not legacy:
-        if 'selected_agreement' not in state or not isinstance(state.get('managed_outputs'), dict):
+    if 'selected_agreement' not in state or not isinstance(state.get('managed_outputs'), dict):
+        raise WorkflowError('INVALID_STATE')
+    if state['selected_agreement'] is not None:
+        validate_reference(state['selected_agreement'])
+    for rel, value in state['managed_outputs'].items():
+        if not output_path(rel) or not isinstance(value, str):
             raise WorkflowError('INVALID_STATE')
-        if state['selected_agreement'] is not None:
-            validate_reference(state['selected_agreement'])
-        for rel, value in state['managed_outputs'].items():
-            if not output_path(rel) or not isinstance(value, str):
-                raise WorkflowError('INVALID_STATE')
     for key in ('answers', 'profile', 'generations'):
         if not isinstance(state.get(key), dict):
             raise WorkflowError('INVALID_STATE')
@@ -386,7 +369,7 @@ def load_state(root, allow_legacy=False):
         raise WorkflowError('INVALID_STATE')
     for rel, answer in state['answers'].items():
         relative(rel)
-        if not isinstance(answer, dict) or not isinstance(answer.get('sha256'), str) or answer.get('disposition') not in ('selected', 'yunxia', 'preserve', 'exclude', 'pending') or not isinstance(answer.get('notice_hashes'), dict):
+        if not isinstance(answer, dict) or not isinstance(answer.get('sha256'), str) or answer.get('disposition') not in ('selected', 'preserve', 'exclude', 'pending') or not isinstance(answer.get('notice_hashes'), dict):
             raise WorkflowError('INVALID_STATE')
         for notice, value in answer['notice_hashes'].items():
             relative(notice)
@@ -402,55 +385,33 @@ def load_state(root, allow_legacy=False):
             prefix = DRAFT_BASE if mode == 'draft' else OUTPUT_BASE
             if not rel.startswith(prefix) or not output_path(rel) or not isinstance(value, str):
                 raise WorkflowError('INVALID_STATE')
-        if not legacy:
-            if 'agreement' not in generation:
-                raise WorkflowError('INVALID_STATE')
-            if generation['agreement'] is not None:
-                validate_reference(generation['agreement'])
+        if 'agreement' not in generation:
+            raise WorkflowError('INVALID_STATE')
+        validate_reference(generation['agreement'])
+        adapter = generation.get('adapter')
+        if (not isinstance(adapter, dict) or set(adapter) != {'id', 'tool_version', 'sha256'}
+                or adapter['id'] != 'scope-license-v1' or not nonempty(adapter['tool_version'])
+                or not isinstance(adapter['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', adapter['sha256'])):
+            raise WorkflowError('INVALID_STATE')
         prefix = DRAFT_BASE if mode == 'draft' else OUTPUT_BASE
         licenses = [p for p in generation['files'] if p.removeprefix(prefix).startswith('LICENSE')]
         if prefix + 'PROJECT-RIGHTS.md' not in generation['files'] or len(licenses) != 1 or generation['files'][licenses[0]] != generation['license_sha256']:
             raise WorkflowError('INVALID_STATE')
-        if not legacy and any(state['managed_outputs'].get(p) != h for p, h in generation['files'].items()):
+        if any(state['managed_outputs'].get(p) != h for p, h in generation['files'].items()):
             raise WorkflowError('INVALID_STATE')
     if 'adoption' in state:
         value = state['adoption']
-        if not isinstance(value, dict) or value.get('authorized') is not True or type(value.get('accept_draft')) is not bool or (legacy and value['accept_draft'] is not True) or not all(nonempty(value.get(k)) for k in ('date', 'snapshot_id', 'context_id')):
+        if not isinstance(value, dict) or value.get('authorized') is not True or type(value.get('accept_draft')) is not bool or not all(nonempty(value.get(k)) for k in ('date', 'snapshot_id', 'context_id')):
             raise WorkflowError('INVALID_STATE')
-        if not legacy:
-            validate_reference(value.get('agreement'))
+        validate_reference(value.get('agreement'))
     if state['snapshot'] is None and (state['answers'] or state['generations'] or state.get('adoption')):
         raise WorkflowError('INVALID_STATE')
     return state
 
 
-def migrate_state(root):
-    state = load_state(root, allow_legacy=True)
-    previous_version = state['state_version']
-    if previous_version == STATE_VERSION:
-        return {'migrated': False, 'state_version': STATE_VERSION}
-    before = current_bytes(root, STATE)
-    old_adoption = state.pop('adoption', None) if previous_version == 1 else state.get('adoption')
-    state['history'].append({'event': 'state_format_migration', 'from': previous_version, 'to': STATE_VERSION,
-                             'at': now(), 'original_state_base64': base64.b64encode(before).decode(),
-                             'previous_adoption': old_adoption,
-                             'reason': '保留原字节与事实。格式1缺少协议绑定不作推断；格式2的已有完整绑定和采用原样保留。'})
-    state.update(state_version=STATE_VERSION, unit_id=UNIT, tool_version=VERSION)
-    if previous_version == 1:
-        state.update(selected_agreement=None,
-                     managed_outputs={p: h for g in state['generations'].values() for p, h in g['files'].items()})
-        for generation in state['generations'].values():
-            generation['agreement'] = None
-    transaction(root, {STATE: encoded(state)})
-    return {'migrated': True, 'previous_state_version': previous_version, 'state_version': STATE_VERSION,
-            'previous_adoption_preserved': old_adoption is not None,
-            'agreement_selection_required': previous_version == 1,
-            'new_adoption_binding_required': previous_version == 1}
-
-
-def select_agreement(root, agreement_id, version, revision=None):
+def select_agreement(root, agreement_id, version):
     state = load_state(root)
-    entry = catalog().select(agreement_id, version, revision)
+    entry = catalog().select(agreement_id, version)
     ref = reference(entry)
     changed = state['selected_agreement'] != ref
     if changed:
@@ -664,10 +625,10 @@ def blockers(state):
         result.append({'code': 'IDENTITY_MISSING', 'paths': []})
     if not state['profile'].get('delivery'):
         result.append({'code': 'DELIVERY_MISSING', 'paths': []})
-    unknown = [p for p in state['snapshot']['files'] if active_answer(state, p).get('disposition') not in ('selected', 'yunxia', 'preserve', 'exclude')]
+    unknown = [p for p in state['snapshot']['files'] if active_answer(state, p).get('disposition') not in ('selected', 'preserve', 'exclude')]
     if unknown:
         result.append({'code': 'ASSET_FACTS_MISSING_OR_STALE', 'paths': unknown})
-    covered = [p for p in state['snapshot']['files'] if active_answer(state, p).get('disposition') in ('selected', 'yunxia')]
+    covered = [p for p in state['snapshot']['files'] if active_answer(state, p).get('disposition') == 'selected']
     if not covered:
         result.append({'code': 'NO_CONFIRMED_SCOPE', 'paths': []})
     for rel in state['snapshot']['files']:
@@ -687,7 +648,7 @@ def questions(root):
     prompts = []
     deferred = []
     deferred_keys = {'IDENTITY_MISSING': 'identity', 'DELIVERY_MISSING': 'delivery'}
-    labels = {'AGREEMENT_NOT_SELECTED': '本次选择哪份协议、确切版本及文本修订？请先查看catalog并明确选择。',
+    labels = {'AGREEMENT_NOT_SELECTED': '本次选择哪份协议、确切版本？请先查看catalog并明确选择。',
               'IDENTITY_MISSING': '项目名称、实际许可主体及其身份是什么？',
               'DELIVERY_MISSING': '这次向谁交付哪些形式的内容？',
               'ASSET_FACTS_MISSING_OR_STALE': '这些文件的来源及拟用许可范围是什么？可分别保留原许可、排除或保持待核。',
@@ -712,7 +673,7 @@ def questions(root):
         if state.get('deferred', {}).get('adoption'):
             deferred.append({'code': 'ADOPTION_NOT_CONFIRMED', 'paths': []})
         else:
-            prompts.append({'id': 'ADOPTION_NOT_CONFIRMED', 'question': '是否已明确授权按所列范围采用所选协议的确切版本、修订和摘要？沿用已有明确任务授权；缺失时才询问采用行为和实际日期。', 'paths': [], 'unknown_allowed': True})
+            prompts.append({'id': 'ADOPTION_NOT_CONFIRMED', 'question': '是否已明确授权按所列范围采用所选协议的确切版本和摘要？沿用已有明确任务授权；缺失时才询问采用行为和实际日期。', 'paths': [], 'unknown_allowed': True})
     return {'questions': prompts[:3], 'remaining_question_groups': max(0, len(prompts) - 3),
             'blockers': issues, 'deferred': deferred, 'snapshot_id': fingerprint(state['snapshot']),
             'selected_agreement': state['selected_agreement'],
@@ -760,13 +721,11 @@ def answer(root, payload):
         if not isinstance(obj, dict) or set(obj) - keys or not isinstance(obj.get('paths'), list) or not obj['paths']:
             raise WorkflowError('ANSWER_FORMAT')
         disposition = obj.get('disposition')
-        if disposition not in ('selected', 'yunxia', 'preserve', 'exclude', 'pending') or not nonempty(obj.get('basis')):
+        if disposition not in ('selected', 'preserve', 'exclude', 'pending') or not nonempty(obj.get('basis')):
             raise WorkflowError('ANSWER_FORMAT')
         if obj.get('origin') not in ('human', 'ai', 'mixed', 'third_party', 'unknown'):
             raise WorkflowError('ANSWER_FORMAT')
-        if disposition == 'yunxia' and (state.get('selected_agreement') or {}).get('agreement_id') != 'yunxia-license':
-            raise WorkflowError('LEGACY_DISPOSITION_REQUIRES_YUNXIA')
-        if disposition in ('selected', 'yunxia') and obj['origin'] == 'unknown':
+        if disposition == 'selected' and obj['origin'] == 'unknown':
             raise WorkflowError('UNKNOWN_ORIGIN_IN_SCOPE')
         if 'public_notice' in obj and not nonempty(obj['public_notice']):
             raise WorkflowError('ANSWER_FORMAT')
@@ -787,11 +746,11 @@ def answer(root, payload):
                 raise WorkflowError('ANSWER_SCOPE_INVALID', [rel])
             seen.add(rel)
             observed = state['snapshot']['files'][rel]
-            if disposition in ('selected', 'yunxia') and (observed['kind'] == 'license-or-notice' or observed['observations']) and obj.get('replace_existing_license') is not True:
+            if disposition == 'selected' and (observed['kind'] == 'license-or-notice' or observed['observations']) and obj.get('replace_existing_license') is not True:
                 raise WorkflowError('EXISTING_NOTICE_REQUIRES_EXPLICIT_SCOPE_DECISION', [rel])
-            if disposition in ('selected', 'yunxia'):
+            if disposition == 'selected':
                 for other in other_states(root):
-                    if active_answer(other, rel).get('disposition') in ('selected', 'yunxia'):
+                    if active_answer(other, rel).get('disposition') == 'selected':
                         raise WorkflowError('ADOPTION_SCOPE_OVERLAP', [rel])
             entry = {k: v for k, v in obj.items() if k != 'paths'}
             entry.update(sha256=observed['sha256'], confirmation=confirmation, notice_hashes=hashes)
@@ -805,7 +764,7 @@ def answer(root, payload):
             raise WorkflowError('ADOPTION_FORMAT')
         validate_reference(obj['agreement'])
         entry = selected(state, 'adopt')
-        if entry['status'] not in ('released', 'archived-release') and obj['accept_draft'] is not True:
+        if entry['status'] != 'released' and obj['accept_draft'] is not True:
             raise WorkflowError('ADOPTION_FORMAT')
         if obj['agreement'] != state['selected_agreement']:
             raise WorkflowError('ADOPTION_AGREEMENT_MISMATCH')
@@ -834,9 +793,8 @@ def md(value):
     return str(value).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('|', '\\|').replace('`', '&#96;').replace('\n', '<br>')
 
 
-def license_bytes(ref=None):
-    data = catalog()
-    return data.resolve(ref or data.recommended)['_text']
+def license_bytes(ref):
+    return catalog().resolve(ref)['_text']
 
 
 def history_issues(state):
@@ -1008,7 +966,7 @@ def verify(root, mode='adopt', artifact=None, prefix=''):
         expected = dict(generation['files'])
         for rel in state['snapshot']['files']:
             a = active_answer(state, rel)
-            if a.get('disposition') in ('selected', 'yunxia', 'preserve'):
+            if a.get('disposition') in ('selected', 'preserve'):
                 expected[rel] = state['snapshot']['files'][rel]['sha256']
                 expected.update(a.get('notice_hashes', {}))
         for rel, wanted in expected.items():
@@ -1027,8 +985,8 @@ def verify(root, mode='adopt', artifact=None, prefix=''):
     return {'structure_valid': not issues, 'mode': mode, 'issues': issues,
             'agreement': state['selected_agreement'],
             'artifact_checked': artifact is not None, 'legal_assessment': 'not_performed', 'limit': LEGAL_LIMIT,
-            'adapter_record_status': 'recorded' if generation.get('adapter') else 'legacy-unrecorded',
-            'adapter_update_available': bool(generation.get('adapter') and generation['adapter'] != adapter_binding())}
+            'adapter': generation['adapter'],
+            'adapter_update_available': generation['adapter'] != adapter_binding()}
 
 
 def verify_all(root, artifact=None, prefix=''):
@@ -1062,11 +1020,11 @@ def verify_all(root, artifact=None, prefix=''):
             for path, item in state['snapshot']['files'].items():
                 known[path] = item['sha256']
                 answer = active_answer(state,path)
-                if answer.get('disposition') in ('selected','yunxia'):
+                if answer.get('disposition') == 'selected':
                     if path in claimed:
                         issues.append({'code':'ADOPTION_SCOPE_OVERLAP','paths':[path]})
                     claimed[path] = unit
-                if answer.get('disposition') in ('selected','yunxia','preserve'):
+                if answer.get('disposition') in ('selected','preserve'):
                     expected[path] = item['sha256']
                     expected.update(answer.get('notice_hashes',{}))
     if not results:
@@ -1090,15 +1048,13 @@ def verify_all(root, artifact=None, prefix=''):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--unit', default='main', help='采用单元；main兼容原有状态')
+    parser.add_argument('--unit', default='main', help='采用单元；默认main')
     parser.add_argument('--root', type=Path, help='目标项目根目录；catalog命令可省略')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('catalog')
     cmd = sub.add_parser('select')
     cmd.add_argument('--agreement', required=True)
     cmd.add_argument('--version', required=True)
-    cmd.add_argument('--revision', help='只用于解析旧四字段引用')
-    sub.add_parser('migrate-state')
     cmd = sub.add_parser('scan')
     cmd.add_argument('--read-only', action='store_true')
     sub.add_parser('questions')
@@ -1129,16 +1085,14 @@ def main(argv=None):
         root = args.root.resolve(strict=True)
         if not root.is_dir():
             raise WorkflowError('ROOT_NOT_DIRECTORY')
-        mutating = args.command in ('answer', 'recover', 'select', 'migrate-state', 'scope') or (args.command == 'scan' and not args.read_only) or (args.command == 'generate' and args.write)
+        mutating = args.command in ('answer', 'recover', 'select', 'scope') or (args.command == 'scan' and not args.read_only) or (args.command == 'generate' and args.write)
         def run():
             if args.command == 'scope':
                 return set_scope(root, args.path)
             if args.command == 'units':
                 return list_units(root)
             if args.command == 'select':
-                return select_agreement(root, args.agreement, args.version, args.revision)
-            if args.command == 'migrate-state':
-                return migrate_state(root)
+                return select_agreement(root, args.agreement, args.version)
             if args.command == 'scan':
                 return scan(root, persist=not args.read_only)
             if args.command == 'questions':

@@ -11,7 +11,8 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia import lifecycle as life
-from yunxia.catalog import Catalog, CatalogError, reference, sha256
+from yunxia.catalog import Catalog, reference
+from yunxia.common import CatalogError, sha256
 
 
 class Lifecycle(unittest.TestCase):
@@ -263,14 +264,12 @@ class Lifecycle(unittest.TestCase):
         with patch.object(Path,'read_bytes',guarded):
             self.error('FIXED_VERSION_EXISTS',life.publish,self.root,'fixture','1.0.0-rc.1','1.0.0',target,self.decision())
 
-    def test_imported_drafts_and_legacy_references_remain_exact(self):
+    def test_fixed_drafts_resolve_by_current_reference(self):
         c=Catalog(ROOT)
         for e in c.entries:
-            for old in e['legacy_references']:
-                self.assertEqual(e['status'],'imported-draft')
-                resolved=c.resolve(old)
-                self.assertEqual(reference(resolved),old)
-                self.assertEqual(sha256(resolved['_text']),old['sha256'])
+            ref=reference(e)
+            self.assertEqual(set(ref),{'agreement_id','version','sha256'})
+            self.assertEqual(sha256(c.resolve(ref)['_text']),ref['sha256'])
 
 
 if __name__=='__main__':unittest.main()

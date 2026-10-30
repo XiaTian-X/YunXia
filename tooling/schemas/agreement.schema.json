@@ -55,10 +55,6 @@
             "sha256": {
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
-            },
-            "text_revision": {
-              "type": "string",
-              "minLength": 1
             }
           },
           "required": [
@@ -89,10 +85,6 @@
             "sha256": {
               "type": "string",
               "pattern": "^[0-9a-f]{64}$"
-            },
-            "text_revision": {
-              "type": "string",
-              "minLength": 1
             }
           },
           "required": [

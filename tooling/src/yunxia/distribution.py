@@ -4,8 +4,8 @@ import os
 import shutil
 import tempfile
 import re
-from .catalog import Catalog, CatalogError, read_json, safe_path, sha256
-from .lifecycle import encoded
+from .catalog import Catalog
+from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded
 from . import VERSION
 
 

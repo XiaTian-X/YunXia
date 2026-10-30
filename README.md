@@ -29,11 +29,11 @@
 | 已收录协议 | [允夏许可证](agreements/yunxia-license/README.md) |
 | 当前工作正文 | [0.9.3 审阅草案](agreements/yunxia-license/text.txt) |
 | 正式发布版本 | 暂无 |
-| 维护工具与 Skill | 0.3.1 |
-| 项目采用状态格式 | 3，支持从旧格式 1、2 显式迁移 |
+| 维护工具与 Skill | 0.4.0 |
+| 项目采用状态格式 | 仅支持格式 3 |
 | 运行环境 | Python 3.11 或以上 |
 
-`releases/` 中保留了三份标记为 `imported-draft` 的旧草案快照，用于准确解析已有引用。其中 `0.9.3-draft.2` 对应当前命名草案；这些标识用于区分固定文本，不代表正式发布或条款修改。
+`releases/` 中保留了三份标记为 `imported-draft` 的旧草案快照，用于草案版本对照。其中 `0.9.3-draft.2` 对应当前命名草案；这些标识用于区分固定文本，不代表正式发布或条款修改。
 
 ## 项目能力
 
@@ -74,7 +74,7 @@ python3 -m venv .venv
 make check
 ```
 
-核心引擎和构建后的 Skill 仅使用 Python 标准库。完整测试中的资产登记检查需要 `jsonschema`，开发依赖已列在上述文件中。
+核心引擎和构建后的 Skill 仅使用 Python 标准库。完整测试中的 JSON Schema 契约检查需要 `jsonschema`，开发依赖已列在上述文件中。
 
 ### 2. 查看协议和检查项目
 
@@ -109,7 +109,7 @@ make skill-install
 
 > 用 yunxia 检查这个项目，为指定范围采用允夏许可证的确切草案版本，缺少的事实再问我。
 
-选择协议、生成草稿与确认采用是不同步骤。已有确认可以复用，未知事实保持待核；旧状态迁移不会补造授权或自动更换协议。
+选择协议、生成草稿与确认采用是不同步骤。已有确认可以复用，未知事实保持待核；工具升级不会补造授权或自动更换协议。
 
 ## 目录结构
 
@@ -121,7 +121,7 @@ make skill-install
 ├── tooling/                # 独立维护与适配引擎
 │   ├── src/yunxia/         # 目录、生命周期、项目工作流及适配器
 │   ├── schemas/            # 数据格式
-│   └── tests/              # 回归测试与必要的迁移样本
+│   └── tests/              # 当前格式、边界和故障恢复测试
 ├── skills/yunxia/          # Agent 指令与参考文档
 ├── docs/                   # 系列规则、维护流程及仓库来源说明
 └── dist/                   # 构建包和检查报告，不提交 Git
@@ -152,8 +152,8 @@ make skill-install
 | 开发工具、运行测试和安装 | [开发、构建与安装](docs/development.md) |
 | 人工采用当前协议 | [允夏许可证采用指南](agreements/yunxia-license/adoption.md) |
 | 通过 Agent 适配项目 | [Skill 入口](skills/yunxia/SKILL.md) · [工作流](skills/yunxia/references/workflow.md) |
-| 迁移旧记录或恢复中断操作 | [旧状态迁移与恢复](skills/yunxia/references/state-migration.md) |
-| 查看维护变化和资料去向 | [变更记录](CHANGELOG.md) · [资料迁移清单](docs/migration.json) |
+| 了解状态记录和恢复中断操作 | [状态与事务恢复](skills/yunxia/references/recovery.md) |
+| 查看维护变化 | [变更记录](CHANGELOG.md) |
 
 ## 仓库自身的许可与来源
 

@@ -2,15 +2,11 @@
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
-import json
 import os
 import shutil
 import tempfile
-from ..catalog import Catalog, CatalogError, read_json, safe_path, segment, sha256, reference, validate_reference, validate_review_record
-
-
-def encoded(data):
-    return (json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + '\n').encode()
+from ..catalog import Catalog, reference, validate_reference, validate_review_record
+from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded
 
 
 def write(path, content):
@@ -215,7 +211,7 @@ def freeze(root, aid, version, notes):
     files = {'text.txt':body,'notes.md':notes.encode(),'review.json':encoded(m['review']), 'adoption.md':(p/'adoption.md').read_bytes()}
     if sha256(body)!=info['source_snapshot']['files']['text.txt'] or sha256(files['adoption.md'])!=info['source_snapshot']['files']['adoption.md']:
         raise CatalogError('REVIEW_SOURCE_CHANGED')
-    record = {'format_version':1,'agreement_id':aid,'version':version,'sha256':sha256(body),'display_name':m['name'],'kind':m['kind'],'status':'candidate','publication':None,'legacy_references':[], 'source':{'source_sha256':info['source_sha256'],'snapshot':info['source_snapshot'],'target_version':m['target_version']},'files':{k:sha256(v) for k,v in files.items()}}
+    record = {'format_version':1,'agreement_id':aid,'version':version,'sha256':sha256(body),'display_name':m['name'],'kind':m['kind'],'status':'candidate','publication':None, 'source':{'source_sha256':info['source_sha256'],'snapshot':info['source_snapshot'],'target_version':m['target_version']},'files':{k:sha256(v) for k,v in files.items()}}
     files['release.json'] = encoded(record)
     # Re-read after staging the plan; review cannot authorize a concurrent edit.
     if source_snapshot(root,aid) != info['source_snapshot']: raise CatalogError('REVIEW_SOURCE_CHANGED')

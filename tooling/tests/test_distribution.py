@@ -11,7 +11,8 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia import distribution as d
-from yunxia.catalog import Catalog,CatalogError
+from yunxia.catalog import Catalog
+from yunxia.common import CatalogError
 from yunxia import cli, lifecycle
 
 
@@ -145,7 +146,7 @@ class Distribution(unittest.TestCase):
                 new=root/'releases/yunxia-license/test-added-snapshot'
                 shutil.copytree(source,new)
                 p=new/'release.json';data=json.loads(p.read_text())
-                data.update(version='test-added-snapshot',legacy_references=[])
+                data.update(version='test-added-snapshot')
                 p.write_text(json.dumps(data))
             return real(root)
         with patch.object(d,'source_signature',side_effect=changed):

@@ -5,7 +5,8 @@ import os
 from pathlib import Path
 import sys
 from . import VERSION
-from .catalog import Catalog, CatalogError, read_json, reference, sha256, support_file, supports, safe_path
+from .catalog import Catalog, reference
+from .common import CatalogError, read_json, safe_path
 from . import lifecycle as life
 
 
@@ -13,9 +14,9 @@ def main(argv=None):
     argv=list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == '--version':
         print(VERSION); return 0
-    if argv and (argv[0]=='project' or argv[0] in ('--root','--unit','catalog','scan','select','questions','migrate-state','generate','verify','recover','scope','units','answer')):
+    if argv and argv[0] == 'project':
         from .project.workflow import main as project_main
-        return project_main(argv[1:] if argv[0]=='project' else argv)
+        return project_main(argv[1:])
     commands=['project','agreement','build','install','check','adapter','recover-maintenance']
     nested_help=any(word in commands for word in argv)
     parser=argparse.ArgumentParser(description=__doc__,add_help=not nested_help)

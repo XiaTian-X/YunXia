@@ -27,7 +27,7 @@ def render(engine, root, state, mode):
              '项目：' + md(identity.get('project_name', '待确认')),
              '许可主体：' + md(identity.get('licensor', '待确认')),
              '身份：' + md(identity.get('role', '待确认')), '',
-             f'协议：{md(agreement["display_name"])}；版本：{md(agreement["version"])}；文本修订：{md(agreement.get("text_revision", "无附加修订"))}；状态：{md(agreement["status"])}。',
+             f'协议：{md(agreement["display_name"])}；版本：{md(agreement["version"])}；状态：{md(agreement["status"])}。',
              f'协议ID：{md(agreement["agreement_id"])}；固定全文：{license_name}；SHA-256：{agreement["sha256"]}。',
              '交付范围：' + md(delivery.get('description', '待确认')),
              '接收者：' + md(delivery.get('audience', '待确认')), '']
@@ -36,7 +36,7 @@ def render(engine, root, state, mode):
                   '上述主体依据其确认的权限，将下表“所选协议范围”中的确切内容按上述固定版本授权。',
                   '分别许可和排除项不因本声明改授；原有有效授权、署名和适用条件按其依据保留。', '']
     lines += ['| 文件 | 内容 SHA-256 | 范围 |', '|---|---|---|']
-    names = {'selected': '所选协议范围', 'yunxia': '所选协议范围', 'preserve': '保留原许可', 'exclude': '排除于本次授权', 'pending': '待核'}
+    names = {'selected': '所选协议范围', 'preserve': '保留原许可', 'exclude': '排除于本次授权', 'pending': '待核'}
     third = ['# 第三方与保留声明', '', '以下范围保留原许可及声明；本清单不认证许可兼容或义务已经履行。', '']
     for rel, item in sorted(state['snapshot']['files'].items()):
         a = active_answer(state, rel)

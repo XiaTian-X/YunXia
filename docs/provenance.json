@@ -785,6 +785,15 @@
       "work": "复现并修复范围交接、汇总验证、审阅绑定、目录校验和安装目标保护等问题，补充测试。",
       "license_text_changed": false,
       "formal_adoption_created": false
+    },
+    {
+      "date": "2026-10-30",
+      "tool_version": "0.4.0",
+      "request": "用户确认没有实际项目依赖旧格式，要求移除兼容代码、无用样本并提交推送。",
+      "work": "提取公共函数，统一当前目录、三字段引用和状态格式3；保留事务恢复与协议正文。",
+      "historical_records_note": "本文既有历史事件中的路径、旧格式名称和修订字段仅描述当时事实，不是当前运行接口。",
+      "license_text_changed": false,
+      "formal_adoption_created": false
     }
   ]
 }

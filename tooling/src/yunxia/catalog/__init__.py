@@ -1,23 +1,11 @@
 """Read fixed releases; development metadata never grants executable capabilities."""
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import os
 import re
-import json
 from datetime import date
-from .legacy import Catalog as LegacyCatalog, CatalogError, read_json, safe_path, sha256, segment
+from ..common import CatalogError, read_json, safe_path, sha256, segment, canonical_sha256, valid_relative_path
 
 REFERENCE_KEYS = {'agreement_id', 'version', 'sha256'}
-
-
-def canonical_sha256(value):
-    return sha256((json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + '\n').encode())
-
-
-def valid_relative_path(value):
-    if not isinstance(value, str) or not value or '\\' in value or any(ord(c) < 32 for c in value):
-        return False
-    p = PurePosixPath(value)
-    return not p.is_absolute() and '..' not in p.parts and p.as_posix() == value and value != '.'
 
 
 def validate_review_record(review):
@@ -78,7 +66,7 @@ def child_directories(root, relative):
 
 
 def validate_reference(ref):
-    if not isinstance(ref, dict) or set(ref) not in (REFERENCE_KEYS, REFERENCE_KEYS | {'text_revision'}):
+    if not isinstance(ref, dict) or set(ref) != REFERENCE_KEYS:
         raise CatalogError('AGREEMENT_REFERENCE_FORMAT')
     if not all(segment(ref[k]) for k in set(ref) - {'sha256'}) or not isinstance(ref['sha256'], str) or not re.fullmatch('[0-9a-f]{64}', ref['sha256']):
         raise CatalogError('AGREEMENT_REFERENCE_FORMAT')
@@ -86,8 +74,7 @@ def validate_reference(ref):
 
 
 def reference(entry):
-    keys = REFERENCE_KEYS | ({'text_revision'} if 'text_revision' in entry else set())
-    return {k: entry[k] for k in sorted(keys)}
+    return validate_reference({k: entry.get(k) for k in sorted(REFERENCE_KEYS)})
 
 
 def default_root():
@@ -125,15 +112,11 @@ class Catalog:
     def __init__(self, root=None):
         self.root = Path(root) if root is not None else default_root()
         self.paths, self.entries, self.recommended_by_agreement = set(), [], {}
-        self.recommended = None  # Only a legacy catalog may define a global recommendation.
-        self.legacy = None
-        if (self.root / 'catalog.json').is_file():
-            self.legacy = LegacyCatalog(self.root)
-            self.entries, self.paths, self.recommended = self.legacy.entries, self.legacy.paths, self.legacy.recommended
-            return
+        if (self.root / 'catalog.json').exists():
+            raise CatalogError('UNSUPPORTED_CATALOG_FORMAT')
         if not self.root.is_dir() or self.root.is_symlink():
             raise CatalogError('CATALOG_PATH_INVALID')
-        identities, aliases = set(), set()
+        identities = set()
         registry_path = safe_path(self.root, 'tooling/src/yunxia/adapters/support.json')
         bundled_registry = self.root.parent.parent / 'scripts/yunxia/adapters/support.json'
         if registry_path.exists():
@@ -165,6 +148,8 @@ class Catalog:
                 raise CatalogError('RELEASE_FORMAT', [rel])
             if {'renderer','capabilities','output_name'} & set(m):
                 raise CatalogError('RELEASE_CONTAINS_ADAPTER_CONFIG',[rel])
+            if set(m) - {'format_version', 'agreement_id', 'version', 'sha256', 'display_name', 'kind', 'status', 'publication', 'files', 'source'}:
+                raise CatalogError('RELEASE_FORMAT', [rel])
             if m['status'] == 'released':
                 publication = m.get('publication')
                 if not isinstance(publication, dict) or not all(isinstance(publication.get(k), str) and publication[k].strip() for k in ('date', 'channel', 'confirmed_by', 'basis')):
@@ -205,7 +190,7 @@ class Catalog:
                 except CatalogError:
                     raise CatalogError('RELEASE_REVIEW_INVALID',[rel]) from None
                 snapshot=source['snapshot']
-                snapshot_sha=sha256((json.dumps(snapshot,ensure_ascii=False,indent=2,sort_keys=True)+'\n').encode())
+                snapshot_sha=canonical_sha256(snapshot)
                 if not isinstance(review,dict) or review.get('decision')!='approved' or review.get('open_issues')!=[] or review.get('source_snapshot')!=snapshot or review.get('source_sha256')!=snapshot_sha or source.get('source_sha256')!=snapshot_sha:
                     raise CatalogError('RELEASE_REVIEW_INVALID',[rel])
                 if not all(isinstance(review.get(k),str) and review[k].strip() for k in ('reviewer','basis','date')):
@@ -218,19 +203,10 @@ class Catalog:
                 if m['status']=='released' and ref['version']!=source['target_version']:
                     raise CatalogError('RELEASE_REVIEW_INVALID',[rel])
             self.paths.add(rel)
-            old_refs = m.get('legacy_references', [])
-            if not isinstance(old_refs, list):
-                raise CatalogError('RELEASE_FORMAT')
-            for old in old_refs:
-                validate_reference(old)
-                key = (old['agreement_id'],old['version'],old.get('text_revision'))
-                if 'text_revision' not in old or old['sha256'] != ref['sha256'] or old['agreement_id'] != ref['agreement_id'] or key in aliases:
-                    raise CatalogError('LEGACY_REFERENCE_INVALID')
-                aliases.add(key)
             match = next((x for x in registry if x['agreement'] == ref), None)
             if match and m['kind'] != 'license':
                 raise CatalogError('CATALOG_WORKFLOW_UNSUPPORTED')
-            package_sha = sha256((json.dumps({f.name:sha256(f.read_bytes()) for f in sorted(p.parent.iterdir()) if f.is_file()},ensure_ascii=False,indent=2,sort_keys=True)+'\n').encode())
+            package_sha = canonical_sha256({f.name:sha256(f.read_bytes()) for f in sorted(p.parent.iterdir()) if f.is_file()})
             self.entries.append(dict(m, _text=body, _manifest=rel, _package_sha256=package_sha, _text_path=(p.parent/'text.txt').relative_to(self.root).as_posix(),
                                      renderer=match['adapter'] if match else None,
                                      capabilities=['inspect', 'draft', 'adopt', 'verify'] if match else ['inspect'],
@@ -261,24 +237,15 @@ class Catalog:
         for supported in registry:
             self.resolve(supported['agreement'])
 
-    def select(self, agreement_id, version, revision=None):
-        if self.legacy:
-            return self.legacy.select(agreement_id, version, revision)
-        matches = []
-        for e in self.entries:
-            if revision is None and (e['agreement_id'], e['version']) == (agreement_id, version):
-                matches.append(e)
-            if revision is not None:
-                for old in e.get('legacy_references', []):
-                    if (old['agreement_id'], old['version'], old.get('text_revision')) == (agreement_id, version, revision):
-                        matches.append(dict(e, **old))
+    def select(self, agreement_id, version):
+        matches = [e for e in self.entries if (e['agreement_id'], e['version']) == (agreement_id, version)]
         if len(matches) != 1:
             raise CatalogError('AGREEMENT_NOT_AVAILABLE')
         return matches[0]
 
     def resolve(self, ref):
         validate_reference(ref)
-        entry = self.select(ref['agreement_id'], ref['version'], ref.get('text_revision'))
+        entry = self.select(ref['agreement_id'], ref['version'])
         if entry['sha256'] != ref['sha256']:
             raise CatalogError('AGREEMENT_PIN_MISMATCH')
         return entry

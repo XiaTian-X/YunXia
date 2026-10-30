@@ -38,36 +38,6 @@
         "null"
       ]
     },
-    "legacy_references": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "agreement_id": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
-          },
-          "version": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
-          },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$"
-          },
-          "text_revision": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "agreement_id",
-          "version",
-          "sha256"
-        ],
-        "additionalProperties": false
-      }
-    },
     "files": {
       "type": "object",
       "required": [
@@ -91,7 +61,6 @@
     "kind",
     "status",
     "publication",
-    "legacy_references",
     "source",
     "files"
   ],
@@ -118,5 +87,6 @@
         }
       }
     }
-  ]
+  ],
+  "additionalProperties": false
 }

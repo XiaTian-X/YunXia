@@ -156,5 +156,25 @@ class Units(unittest.TestCase):
         self.assertTrue(result['units']['docs']['structure_valid'])
         self.assertIn('SCAN_STALE',{x['code'] for x in result['issues']})
 
+    def test_named_unit_interrupted_write_restores_files_and_state(self):
+        self.adopt('code','src','src/a.py')
+        with w.using_unit('code'):
+            before_state=(self.root/w.STATE).read_bytes()
+            output='licenses/code/PROJECT-RIGHTS.md'
+            before_output=(self.root/output).read_bytes()
+            real=w.atomic
+            def interrupted(path,content,private=False):
+                if path==self.root/w.STATE:raise KeyboardInterrupt()
+                return real(path,content,private)
+            with w.lock(self.root),patch.object(w,'atomic',side_effect=interrupted),self.assertRaises(KeyboardInterrupt):
+                w.transaction(self.root,{output:b'partial new content',w.STATE:b'partial state'})
+            self.assertTrue((self.root/w.JOURNAL).exists())
+            with self.assertRaises(w.WorkflowError) as cm:w.load_state(self.root)
+            self.assertEqual(cm.exception.code,'RECOVERY_REQUIRED')
+            with w.lock(self.root,recovery=True):self.assertTrue(w.restore(self.root))
+            self.assertEqual((self.root/w.STATE).read_bytes(),before_state)
+            self.assertEqual((self.root/output).read_bytes(),before_output)
+            self.assertTrue(w.verify(self.root)['structure_valid'])
+
 
 if __name__=='__main__':unittest.main()
