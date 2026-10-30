@@ -1,0 +1,790 @@
+{
+  "format_version": 1,
+  "formal_adoption_confirmed": false,
+  "rights_verified": false,
+  "restructure_date": "2026-10-25",
+  "backup_name": "2026-10-25-architecture-1dfe6981",
+  "backup_manifest_sha256": "f56a2739c88b70eb48da58b5a58df05d561f6d26e5fa95b0eb06ebf0c283ef65",
+  "original_evidence": {
+    "revision": "2026-10-23.3",
+    "recorded_at": "2026-10-23",
+    "baseline": {
+      "filename": "中文智能体宽松许可证-0.9.3-披露配套实施包.zip",
+      "sha256": "94278be60fe98bc456ba2a34a7527220caa989d8f32f8098438e5d252417b513",
+      "file_count": 56,
+      "meaning": "用于字节差异和来源版本定位，不证明权属；未再次把整个基线包嵌入当前包。"
+    },
+    "fixed_license": {
+      "path": "self-application/LICENSE-0.9.3.txt",
+      "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "equal_to_baseline": false,
+      "terms_equal_to_baseline": true,
+      "text_revision": "2026-10-24.naming-1"
+    },
+    "instruction_context": {
+      "request_summary": "用户要求尝试在本许可证项目中使用本许可证，检验逻辑递归闭环。",
+      "meaning": "授权本次项目分析、文件编辑和试行；不作为全部权利、组织代表或专利处分权限证明。"
+    },
+    "file_observations": {
+      "scope": "当前包根下实际文件；历史ZIP不展开",
+      "inventory_path": "self-application/license-map.json",
+      "new_paths": [
+        "audit/自身登记结构检查.json",
+        "audit/自身适用核对.json",
+        "changes/2026-10-23.3-自身适用.diff",
+        "research/自身适用与递归闭环审查.md",
+        "self-application/AI-USAGE.md",
+        "self-application/LICENSE-0.9.3.txt",
+        "self-application/PROJECT-RIGHTS-DRAFT.md",
+        "self-application/README.md",
+        "self-application/THIRD-PARTY.md",
+        "self-application/asset-register.json",
+        "self-application/evidence.json",
+        "self-application/license-map.json",
+        "simulation/self-application-cases.json",
+        "simulation/自身适用场景.md",
+        "tests/test_self_application.py",
+        "tools/check_self_application.py"
+      ],
+      "modified_baseline_paths": [
+        "CHANGELOG.md",
+        "README.md",
+        "SHA256SUMS",
+        "release/adoption-state.json",
+        "release/采用说明.md",
+        "templates/AGENT-DELIVERY.md",
+        "templates/LICENSE-MIGRATION.md",
+        "templates/PROJECT-RIGHTS.md",
+        "tools/README.md"
+      ],
+      "baseline_hashes_for_modified_paths": {
+        "CHANGELOG.md": "be92f7a39de25a3e16e5f81de1f5ad5dc628ffa9d3d6b52fed796cadbfd8a4c5",
+        "README.md": "75fde6b5f816e4d261ea97c4297b5669d4f6f1803cca2a09f2b5ed801b6c6ab6",
+        "SHA256SUMS": "65fbfc498d84eba3f5434cfe6ce3c34510909a3f032bae5e63c12f4ef48ee4cd",
+        "release/adoption-state.json": "6919003aa63e991683f629a709b4cce38486596675935960de7a137d2fc04bcd",
+        "release/采用说明.md": "9dc8d1ff8d5cf9dc7f4dd5fa9fcdd02137760078722b190988a42156d9b515c6",
+        "templates/AGENT-DELIVERY.md": "359bbbe81d916bd556c65e12041bc7ecbfb8f6e8ed7b8a5fad112a6bb4829a92",
+        "templates/LICENSE-MIGRATION.md": "a760aeb41600e1e8d189ff19d97d309fa31ae7d79c3902936098bd8438018102",
+        "templates/PROJECT-RIGHTS.md": "6490c117576c656de563d5d86a3d643227da382ad35bcdb86c431d6e8c343f86",
+        "tools/README.md": "5ab665c0ae563442a9afed154cf052581f11fa94db9312d81669beb21acc60eb"
+      },
+      "remaining_baseline_files": "未列入modified_baseline_paths的基线文件须保持原字节，最终核对见audit/自身适用核对.json"
+    },
+    "jsonschema_distribution": {
+      "name": "jsonschema",
+      "version": "4.26.0",
+      "observed_license": "MIT",
+      "observed_copyright": "Copyright (c) 2013 Julian Berman",
+      "original_license_path_in_distribution": "jsonschema-4.26.0.dist-info/licenses/COPYING",
+      "license_sha256": "4f92a015a13c4d1a040bef018aa13430b4f1bc73b41b16bb846c346766de7439",
+      "metadata_sha256": "05b189866ca98a96da3934bf6b83687ced3ff85325273b77e16b705f6d8b26d2",
+      "official_repository": "https://github.com/python-jsonschema/jsonschema",
+      "source_kind": "已安装原始发行物的COPYING与METADATA；不是网页推测",
+      "bundled_implementation": false,
+      "limit": "未对所有允许版本、传递依赖或未来分发作许可清理。"
+    },
+    "historical_docx": {
+      "path": "research/披露声明调研与补足规划.docx",
+      "sha256": "c74f33c25770dbbe8eb67f9e6a578247d412a38938020c6031d96bcb1fc7b3ef",
+      "embedded_font_media_object_members": [],
+      "core_dates_as_observed": {
+        "created": "2013-12-23T23:15:00Z",
+        "modified": "2013-12-23T23:15:00Z"
+      },
+      "limit": "默认元数据日期不作实际创作或授权时间证明；历史文件保持原字节。"
+    },
+    "official_sources": [
+      {
+        "title": "中华人民共和国著作权法（2020年修正）",
+        "url": "https://www.nsfc.gov.cn/p1/2871/2872/69475.html",
+        "accessed": "2026-10-23"
+      },
+      {
+        "title": "中华人民共和国民法典合同编",
+        "url": "https://www.cac.gov.cn/2020-06/01/c_15925617772683192.htm",
+        "accessed": "2026-10-23"
+      },
+      {
+        "title": "Creative Commons Policies",
+        "url": "https://creativecommons.org/policies/",
+        "accessed": "2026-10-23"
+      }
+    ],
+    "legal_rights_verified": false,
+    "confirmed_grant_events": [],
+    "naming_revision": {
+      "date": "2026-10-24",
+      "request": "项目和协议名称统一为允夏 / YunXia。",
+      "source_archive": "history/YunXia-0.9.3-pre-rename.zip",
+      "current_review": "audit/naming-review.json",
+      "historical_evidence_note": "其他字段记录2026-10-23观察；原文件名与原哈希保留用于来源定位，不适用于本次修改后的字节。"
+    }
+  },
+  "historical_ai_events": [
+    {
+      "event_id": "AI-self-trial",
+      "asset_ids": [
+        "A-06572a96a58d",
+        "A-b33563055168",
+        "A-35054c81ee88",
+        "A-355d6bba585b",
+        "A-17dddc20188e",
+        "A-b2d3b4e87fbf",
+        "A-f2b21c9d42f9",
+        "A-3f7473e1c25f",
+        "A-c582fe44d7c5",
+        "A-41ab30e360ac",
+        "A-9499fc5de5b9",
+        "A-215b753b8af2",
+        "A-6761be34759b",
+        "A-2d0f010af722",
+        "A-2fdde6d67e52",
+        "A-b4e3bdf433bf",
+        "A-a9b3b4bb2ce3",
+        "A-7054a6ea42fe",
+        "A-7768edf493eb",
+        "A-4cf92300f0c0",
+        "A-531b1e345f21",
+        "A-b8afe201235d",
+        "A-9cea6a160755",
+        "A-dbe7e0ab0cb2"
+      ],
+      "event_kind": "editing",
+      "actor": "本次Codex助手辅助整理",
+      "provider": "OpenAI",
+      "platform": "ChatGPT Work / Codex",
+      "model": null,
+      "model_version": null,
+      "unknown_reason": "没有取得可独立核验的实际部署型号及版本标识。",
+      "purpose": "基于当前包分析、编辑和构造自身适用材料；新增的固定正文副本仅复制既有字节。",
+      "occurred_at": "2026-10-23",
+      "human_contribution": "用户确定目标和审查要求；其他具体创作贡献待原始事实核对。",
+      "input_source_evidence_ids": [
+        "E-baseline",
+        "E-instruction",
+        "E-fixed",
+        "E-law",
+        "E-dependency"
+      ],
+      "terms_record_ids": [
+        "T-account-pending"
+      ],
+      "output_components": [
+        "CHANGELOG.md",
+        "README.md",
+        "audit/自身登记结构检查.json",
+        "audit/自身适用核对.json",
+        "changes/2026-10-23.3-自身适用.diff",
+        "release/adoption-state.json",
+        "release/采用说明.md",
+        "research/自身适用与递归闭环审查.md",
+        "self-application/AI-USAGE.md",
+        "self-application/LICENSE-0.9.3.txt",
+        "self-application/PROJECT-RIGHTS-DRAFT.md",
+        "self-application/README.md",
+        "self-application/THIRD-PARTY.md",
+        "self-application/asset-register.json",
+        "self-application/evidence.json",
+        "self-application/license-map.json",
+        "simulation/self-application-cases.json",
+        "simulation/自身适用场景.md",
+        "templates/AGENT-DELIVERY.md",
+        "templates/LICENSE-MIGRATION.md",
+        "templates/PROJECT-RIGHTS.md",
+        "tests/test_self_application.py",
+        "tools/README.md",
+        "tools/check_self_application.py"
+      ],
+      "review": {
+        "status": "checked",
+        "scope": "本轮已观察到的AI参与、文件编辑和复制范围，不涵盖部署型号或服务合同。",
+        "reviewer": "本次Codex助手辅助核对；非独立法律审计",
+        "reviewed_at": "2026-10-23",
+        "evidence_ids": [
+          "E-ai"
+        ],
+        "unresolved_items": [
+          "型号、账户关系和实际条款适用版本待核；历史制作事件未重建。"
+        ]
+      }
+    },
+    {
+      "event_id": "AI-naming-20261024",
+      "asset_ids": [
+        "A-06572a96a58d",
+        "A-b33563055168",
+        "A-e6351d376618",
+        "A-d1a34de9b332",
+        "A-d53ecc0ce7b6",
+        "A-076f38c9ba7a",
+        "A-b2d3b4e87fbf",
+        "A-f2b21c9d42f9",
+        "A-c582fe44d7c5",
+        "A-41ab30e360ac",
+        "A-9499fc5de5b9",
+        "A-215b753b8af2",
+        "A-2d0f010af722",
+        "A-2fdde6d67e52",
+        "A-b4e3bdf433bf",
+        "A-388ffcdd5a14",
+        "A-62356c289c74",
+        "A-88bbbc5e3d6d",
+        "A-ea5bc43afa83",
+        "A-859bfeb09068",
+        "A-7afb2b751716",
+        "A-7768edf493eb",
+        "A-1506e6dc5477",
+        "A-05e2e0e3884e",
+        "A-ec912383cbb1",
+        "A-4cf92300f0c0",
+        "A-92244dbb612e",
+        "A-531b1e345f21",
+        "A-b8afe201235d",
+        "A-9cea6a160755",
+        "A-dbe7e0ab0cb2",
+        "A-b573f4bcd02e"
+      ],
+      "event_kind": "editing",
+      "actor": "本次Codex助手辅助整理",
+      "provider": "OpenAI",
+      "platform": "ChatGPT Work / Codex",
+      "model": null,
+      "model_version": null,
+      "unknown_reason": "没有取得可独立核验的实际部署型号及版本标识。",
+      "purpose": "统一允夏 / YunXia项目及协议名称，更新标题、路径、引用和摘要，核对历史证据边界。",
+      "occurred_at": "2026-10-24",
+      "human_contribution": "用户确定中文允夏、英文YunXia，并要求全面核对项目和协议名称。",
+      "input_source_evidence_ids": [
+        "E-instruction",
+        "E-fixed",
+        "E-inventory"
+      ],
+      "terms_record_ids": [
+        "T-account-pending"
+      ],
+      "output_components": [
+        "CHANGELOG.md",
+        "README.md",
+        "SHA256SUMS",
+        "compatibility/CONTENT-PATHS.md",
+        "drafts/LICENSES/LicenseRef-YunXia-0.9.3-draft.txt",
+        "drafts/允夏许可证-0.9.3-审阅草案.txt",
+        "release/adoption-state.json",
+        "release/采用说明.md",
+        "self-application/AI-USAGE.md",
+        "self-application/LICENSE-0.9.3.txt",
+        "self-application/PROJECT-RIGHTS-DRAFT.md",
+        "self-application/README.md",
+        "self-application/asset-register.json",
+        "self-application/evidence.json",
+        "self-application/license-map.json",
+        "simulation/cases.json",
+        "simulation/coherence-cases.json",
+        "simulation/omissions-cases.json",
+        "simulation/场景模拟.md",
+        "simulation/补漏场景.md",
+        "simulation/逻辑复审补充场景.md",
+        "templates/AGENT-DELIVERY.md",
+        "templates/COMPATIBILITY-RECORD.md",
+        "templates/CONTRIBUTION-AUTHORIZATION.md",
+        "templates/KNOWLEDGE-LICENSE.md",
+        "templates/LICENSE-MIGRATION.md",
+        "templates/LICENSE-OPTIONS.md",
+        "templates/PROJECT-RIGHTS.md",
+        "tests/test_self_application.py",
+        "tools/README.md",
+        "tools/check_self_application.py",
+        "audit/naming-review.json"
+      ],
+      "review": {
+        "status": "checked",
+        "scope": "本次命名维护的文件编辑及核对范围；不核验权属或服务合同。",
+        "reviewer": "本次Codex助手辅助核对；非独立法律审计",
+        "reviewed_at": "2026-10-24",
+        "evidence_ids": [
+          "E-ai"
+        ],
+        "unresolved_items": [
+          "型号、账户关系和实际条款适用版本待核；历史制作事件未重建。"
+        ]
+      }
+    },
+    {
+      "event_id": "AI-check-20261024",
+      "asset_ids": [
+        "A-06572a96a58d",
+        "A-b33563055168",
+        "A-e6351d376618",
+        "A-b2d3b4e87fbf",
+        "A-c582fe44d7c5",
+        "A-215b753b8af2",
+        "A-2d0f010af722",
+        "A-b4e3bdf433bf",
+        "A-b8afe201235d",
+        "A-9cea6a160755",
+        "A-dbe7e0ab0cb2",
+        "A-77a6433308e4"
+      ],
+      "event_kind": "editing",
+      "actor": "本次Codex助手辅助整理",
+      "provider": "OpenAI",
+      "platform": "Codex desktop",
+      "model": null,
+      "model_version": null,
+      "unknown_reason": "没有取得可独立核验的实际部署型号及版本标识。",
+      "purpose": "检查项目结构、登记与完整性；修复校验器异常输入处理并补充测试及当前检查记录。",
+      "occurred_at": "2026-10-24",
+      "human_contribution": "用户要求检查项目，确保没有问题。",
+      "input_source_evidence_ids": [
+        "E-project-check",
+        "E-fixed",
+        "E-inventory"
+      ],
+      "terms_record_ids": [
+        "T-account-pending"
+      ],
+      "output_components": [
+        "CHANGELOG.md",
+        "README.md",
+        "SHA256SUMS",
+        "audit/project-review.json",
+        "release/adoption-state.json",
+        "self-application/AI-USAGE.md",
+        "self-application/README.md",
+        "self-application/asset-register.json",
+        "self-application/license-map.json",
+        "tests/test_self_application.py",
+        "tools/README.md",
+        "tools/check_self_application.py"
+      ],
+      "review": {
+        "status": "checked",
+        "scope": "本次工具修复、文件编辑与本地验证范围；不核验权属或服务合同。",
+        "reviewer": "本次Codex助手辅助核对；非独立法律审计",
+        "reviewed_at": "2026-10-24",
+        "evidence_ids": [
+          "E-project-check"
+        ],
+        "unresolved_items": [
+          "型号、账户关系和实际条款适用版本待核；历史制作事件未重建。"
+        ]
+      }
+    },
+    {
+      "event_id": "AI-skill-20261024",
+      "asset_ids": [
+        "A-06572a96a58d",
+        "A-b33563055168",
+        "A-e6351d376618",
+        "A-b2d3b4e87fbf",
+        "A-c582fe44d7c5",
+        "A-215b753b8af2",
+        "A-2d0f010af722",
+        "A-b4e3bdf433bf",
+        "A-9cea6a160755",
+        "A-bc37d034bad5",
+        "A-76ed074a9305",
+        "A-3db9fc0a770f",
+        "A-542e44a08a69",
+        "A-558624937344",
+        "A-2d0eeb7f5c6f",
+        "A-197e6fd8126a",
+        "A-c666ec09f06d",
+        "A-2414b1882f4f",
+        "A-2ea60248034e",
+        "A-095e0924eb82",
+        "A-25fad361b278"
+      ],
+      "event_kind": "editing",
+      "actor": "本次Codex助手辅助整理",
+      "provider": "OpenAI",
+      "platform": "Codex desktop",
+      "model": null,
+      "model_version": null,
+      "unknown_reason": "没有取得可独立核验的实际部署型号及版本标识。",
+      "purpose": "根据用户要求实现yunxia Skill首版、补齐工作流规则及测试、整理项目入口、配置本地Git身份与忽略规则。",
+      "occurred_at": "2026-10-24",
+      "human_contribution": "用户确定实现范围、要求优化项目结构，并给出Git身份及排除密钥等要求。",
+      "input_source_evidence_ids": [
+        "E-skill-implementation",
+        "E-fixed",
+        "E-inventory"
+      ],
+      "terms_record_ids": [
+        "T-account-pending"
+      ],
+      "output_components": [
+        ".gitignore",
+        "CHANGELOG.md",
+        "Makefile",
+        "README.md",
+        "SHA256SUMS",
+        "audit/skill-v0.1.0.json",
+        "release/adoption-state.json",
+        "self-application/AI-USAGE.md",
+        "self-application/README.md",
+        "self-application/asset-register.json",
+        "self-application/license-map.json",
+        "skills/yunxia/SKILL.md",
+        "skills/yunxia/agents/openai.yaml",
+        "skills/yunxia/assets/LICENSE-0.9.3.txt",
+        "skills/yunxia/assets/provenance.json",
+        "skills/yunxia/references/workflow.md",
+        "skills/yunxia/scripts/yunxia.py",
+        "tests/test_yunxia_skill.py",
+        "tools/README.md",
+        "tools/check_project.py",
+        "tools/requirements-dev.txt"
+      ],
+      "review": {
+        "status": "checked",
+        "scope": "本地Skill实现与测试、独立临时项目试用、项目结构与Git配置；不是法律审计。",
+        "reviewer": "本次Codex助手辅助核对；非独立法律审计",
+        "reviewed_at": "2026-10-24",
+        "evidence_ids": [
+          "E-skill-implementation"
+        ],
+        "unresolved_items": [
+          "型号、账户关系和实际条款适用版本待核；历史制作事件未重建。"
+        ]
+      }
+    },
+    {
+      "event_id": "AI-catalog-20261024",
+      "asset_ids": [
+        "A-06572a96a58d",
+        "A-b33563055168",
+        "A-e6351d376618",
+        "A-b2d3b4e87fbf",
+        "A-c582fe44d7c5",
+        "A-215b753b8af2",
+        "A-2d0f010af722",
+        "A-b4e3bdf433bf",
+        "A-b8afe201235d",
+        "A-9cea6a160755",
+        "A-2beb51c8972f",
+        "A-dbe7e0ab0cb2",
+        "A-76ed074a9305",
+        "A-542e44a08a69",
+        "A-558624937344",
+        "A-197e6fd8126a",
+        "A-c666ec09f06d",
+        "A-2414b1882f4f",
+        "A-2ea60248034e",
+        "A-095e0924eb82",
+        "A-7dcfb7fb90df",
+        "A-09e5687bdf2b",
+        "A-a33384ebab70",
+        "A-35bcc308d71c",
+        "A-1fef09297b60",
+        "A-5819ea456338",
+        "A-eeb7c559bdf1",
+        "A-cbc24f1a04b1",
+        "A-a153650d6273",
+        "A-5183425cabe7",
+        "A-b1889626caaf",
+        "A-f222681217cf",
+        "A-8e14ddd6c044",
+        "A-26ceb1f3be01",
+        "A-c1b07aaae1a6",
+        "A-80e156ea2019",
+        "A-6b1745903f50",
+        "A-2cc0335cfb19",
+        "A-ddc52f3940e2",
+        "A-cc7f59f8155f",
+        "A-023875c3fb34",
+        "A-374f6c8c6434",
+        "A-039c25f1b38b",
+        "A-f5587dcb5668",
+        "A-bc237f9a86ec",
+        "A-94ccdf6f8121",
+        "A-1ac0bafdf132",
+        "A-6e659bc5f630",
+        "A-01fdaf0f8600"
+      ],
+      "event_kind": "editing",
+      "actor": "本次Codex助手辅助整理",
+      "provider": "OpenAI",
+      "platform": "Codex desktop",
+      "model": null,
+      "model_version": null,
+      "unknown_reason": "没有取得可独立核验的实际部署型号及版本标识。",
+      "purpose": "实现协议目录、多版本绑定与显式状态迁移，整理共享格式，补充测试并同步本机Skill。历史正文仅按原字节复制。",
+      "occurred_at": "2026-10-24",
+      "human_contribution": "用户明确要求按分析建议重构，保留历史和既有引用，补齐测试并更新安装。",
+      "input_source_evidence_ids": [
+        "E-catalog-refactor",
+        "E-fixed",
+        "E-inventory"
+      ],
+      "terms_record_ids": [
+        "T-account-pending"
+      ],
+      "output_components": [
+        "CHANGELOG.md",
+        "Makefile",
+        "README.md",
+        "SHA256SUMS",
+        "agreements/README.md",
+        "agreements/catalog.json",
+        "agreements/legacy-aliases.json",
+        "agreements/yunxia-license/README.md",
+        "agreements/yunxia-license/agreement.json",
+        "agreements/yunxia-license/versions/0.9.2/original/manifest.json",
+        "agreements/yunxia-license/versions/0.9.2/original/text.txt",
+        "agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/manifest.json",
+        "agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/text.txt",
+        "agreements/yunxia-license/versions/0.9.3/pre-naming/manifest.json",
+        "agreements/yunxia-license/versions/0.9.3/pre-naming/text.txt",
+        "audit/multi-agreement-v0.2.0.json",
+        "release/adoption-state.json",
+        "self-application/AI-USAGE.md",
+        "self-application/README.md",
+        "self-application/asset-register.json",
+        "self-application/license-map.json",
+        "shared/README.md",
+        "shared/schemas/asset-register-2.0.0.schema.json",
+        "shared/templates/asset-register.json",
+        "skills/yunxia/SKILL.md",
+        "skills/yunxia/agents/openai.yaml",
+        "skills/yunxia/assets/agreements/catalog.json",
+        "skills/yunxia/assets/agreements/yunxia-license/agreement.json",
+        "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.2/original/manifest.json",
+        "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.2/original/text.txt",
+        "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/manifest.json",
+        "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/text.txt",
+        "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.3/pre-naming/manifest.json",
+        "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.3/pre-naming/text.txt",
+        "skills/yunxia/assets/provenance.json",
+        "skills/yunxia/references/state-migration.md",
+        "skills/yunxia/references/workflow.md",
+        "skills/yunxia/scripts/agreement_catalog.py",
+        "skills/yunxia/scripts/yunxia.py",
+        "tests/test_agreement_tools.py",
+        "tests/test_record_versions.py",
+        "tests/test_self_application.py",
+        "tests/test_yunxia_skill.py",
+        "tools/README.md",
+        "tools/check_disclosure.py",
+        "tools/check_project.py",
+        "tools/check_self_application.py",
+        "tools/manage_agreements.py",
+        "tools/register_project_files.py"
+      ],
+      "review": {
+        "status": "checked",
+        "scope": "协议元数据、来源别名、状态绑定与本地测试；不判断法律兼容或形成实际授权。",
+        "reviewer": "本次Codex助手辅助核对；非独立法律审计",
+        "reviewed_at": "2026-10-24",
+        "evidence_ids": [
+          "E-catalog-refactor"
+        ],
+        "unresolved_items": [
+          "型号、账户关系和实际条款适用版本待核；历史制作事件未重建。"
+        ]
+      }
+    },
+    {
+      "event_id": "AI-catalog-review-20261024",
+      "asset_ids": [
+        "A-06572a96a58d",
+        "A-b33563055168",
+        "A-e6351d376618",
+        "A-b2d3b4e87fbf",
+        "A-c582fe44d7c5",
+        "A-215b753b8af2",
+        "A-2d0f010af722",
+        "A-b4e3bdf433bf",
+        "A-9cea6a160755",
+        "A-542e44a08a69",
+        "A-197e6fd8126a",
+        "A-c666ec09f06d",
+        "A-2414b1882f4f",
+        "A-2ea60248034e",
+        "A-7dcfb7fb90df",
+        "A-bc237f9a86ec",
+        "A-94ccdf6f8121",
+        "A-6e659bc5f630",
+        "A-894b724255e9",
+        "A-dbb2d86b4b7d"
+      ],
+      "event_kind": "editing",
+      "actor": "本次Codex助手辅助整理",
+      "provider": "OpenAI",
+      "platform": "Codex desktop",
+      "model": null,
+      "model_version": null,
+      "unknown_reason": "没有取得可独立核验的实际部署型号及版本标识。",
+      "purpose": "全面复查并修复协议目录保留、换版归档、交付prefix、状态校验和回滚边界，补充回归与独立复验。",
+      "occurred_at": "2026-10-24",
+      "human_contribution": "用户明确要求重点确认新增协议、版本更新、旧状态迁移与历史引用，发现问题直接修复。",
+      "input_source_evidence_ids": [
+        "E-catalog-review",
+        "E-fixed",
+        "E-inventory"
+      ],
+      "terms_record_ids": [
+        "T-account-pending"
+      ],
+      "output_components": [
+        "CHANGELOG.md",
+        "README.md",
+        "SHA256SUMS",
+        "agreements/README.md",
+        "agreements/retention.json",
+        "audit/catalog-review-v0.2.1.json",
+        "release/adoption-state.json",
+        "self-application/AI-USAGE.md",
+        "self-application/README.md",
+        "self-application/asset-register.json",
+        "self-application/license-map.json",
+        "skills/yunxia/SKILL.md",
+        "skills/yunxia/assets/provenance.json",
+        "skills/yunxia/references/workflow.md",
+        "skills/yunxia/scripts/agreement_catalog.py",
+        "skills/yunxia/scripts/yunxia.py",
+        "tests/test_agreement_tools.py",
+        "tests/test_yunxia_skill.py",
+        "tools/README.md",
+        "tools/manage_agreements.py"
+      ],
+      "review": {
+        "status": "checked",
+        "scope": "本地工具边界、历史字节与目录引用检查；不作法律效力或权属认证。",
+        "reviewer": "本次Codex助手辅助核对；非独立法律审计",
+        "reviewed_at": "2026-10-24",
+        "evidence_ids": [
+          "E-catalog-review"
+        ],
+        "unresolved_items": [
+          "型号、账户关系和实际条款适用版本待核；历史制作事件未重建。"
+        ]
+      }
+    }
+  ],
+  "historical_evidence_records": [
+    {
+      "evidence_id": "E-baseline",
+      "kind": "file-observation",
+      "reference": "self-application/evidence.json#/baseline",
+      "access": "internal",
+      "purpose": "原包哈希和版本来源定位",
+      "retention_basis": "本次试行事实及差异定位",
+      "retention_review_at": null,
+      "note": "不单独证明权属或正式授权。"
+    },
+    {
+      "evidence_id": "E-inventory",
+      "kind": "file-observation",
+      "reference": "self-application/license-map.json；audit/catalog-review-v0.2.1.json",
+      "access": "internal",
+      "purpose": "实际文件集合与固定文本核对",
+      "retention_basis": "本次试行事实及差异定位",
+      "retention_review_at": null,
+      "note": "不单独证明权属或正式授权。"
+    },
+    {
+      "evidence_id": "E-fixed",
+      "kind": "license-text",
+      "reference": "self-application/LICENSE-0.9.3.txt；SHA-256 1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "access": "internal",
+      "purpose": "逻辑分析及待核条件定位",
+      "retention_basis": "本次试行事实及差异定位",
+      "retention_review_at": null,
+      "note": "不单独证明权属或正式授权。"
+    },
+    {
+      "evidence_id": "E-instruction",
+      "kind": "task-context",
+      "reference": "self-application/evidence.json#/instruction_context",
+      "access": "internal",
+      "purpose": "记录任务范围，不作权利证明",
+      "retention_basis": "本次试行事实及差异定位",
+      "retention_review_at": null,
+      "note": "不单独证明权属或正式授权。"
+    },
+    {
+      "evidence_id": "E-ai",
+      "kind": "creation-observation",
+      "reference": "self-application/AI-USAGE.md；self-application/evidence.json#/file_observations",
+      "access": "internal",
+      "purpose": "本次制作事实及文件范围",
+      "retention_basis": "本次试行事实及差异定位",
+      "retention_review_at": null,
+      "note": "不单独证明权属或正式授权。"
+    },
+    {
+      "evidence_id": "E-dependency",
+      "kind": "original-distribution",
+      "reference": "self-application/evidence.json#/jsonschema_distribution",
+      "access": "internal",
+      "purpose": "指定安装副本的原始许可核对，非本包授权",
+      "retention_basis": "本次试行事实及差异定位",
+      "retention_review_at": null,
+      "note": "不单独证明权属或正式授权。"
+    },
+    {
+      "evidence_id": "E-law",
+      "kind": "official-source",
+      "reference": "https://www.nsfc.gov.cn/p1/2871/2872/69475.html",
+      "access": "public",
+      "purpose": "权利与实际许可范围分析",
+      "retention_basis": "本次试行事实及差异定位",
+      "retention_review_at": null,
+      "note": "不单独证明权属或正式授权。"
+    },
+    {
+      "evidence_id": "E-project-check",
+      "kind": "test-observation",
+      "reference": "audit/project-review.json",
+      "access": "internal",
+      "purpose": "当前任务要求、修复内容及本地验证结果",
+      "retention_basis": "项目检查及变更定位",
+      "retention_review_at": null,
+      "note": "不证明权属、兼容或正式采用。"
+    },
+    {
+      "evidence_id": "E-skill-implementation",
+      "kind": "test-observation",
+      "reference": "audit/skill-v0.1.0.json",
+      "access": "internal",
+      "purpose": "当前任务范围、Skill实现及本地验证结果",
+      "retention_basis": "实现与回归定位",
+      "retention_review_at": null,
+      "note": "Git配置、工具安装与检查不形成权属或正式采用证明。"
+    },
+    {
+      "evidence_id": "E-catalog-refactor",
+      "kind": "test-observation",
+      "reference": "audit/multi-agreement-v0.2.0.json",
+      "access": "internal",
+      "purpose": "多协议重构范围与本地验证",
+      "retention_basis": "实现与回归定位",
+      "retention_review_at": null,
+      "note": "目录收录、工具安装及状态迁移不形成新的授权。"
+    },
+    {
+      "evidence_id": "E-catalog-review",
+      "kind": "test-observation",
+      "reference": "audit/catalog-review-v0.2.1.json",
+      "access": "internal",
+      "purpose": "重构后边界复查与修复验证",
+      "retention_basis": "回归与差异定位",
+      "retention_review_at": null,
+      "note": "测试中的新协议及错误记录仅为临时夹具。"
+    }
+  ],
+  "historical_reference_policy": "原路径与资产编号在完整备份中解析，不作为当前活动文件路径；不补造权属或实际采用。",
+  "current_work": "按用户授权重构结构、独立引擎、生命周期和Skill衔接；协议正文不变。",
+  "maintenance_events": [
+    {
+      "date": "2026-10-30",
+      "tool_version": "0.3.1",
+      "request": "全面复查新架构、生命周期、Skill衔接与旧状态迁移，直接修复并同步安装。",
+      "performed_by": "当前对话助手；用户提供任务目标",
+      "work": "复现并修复范围交接、汇总验证、审阅绑定、目录校验和安装目标保护等问题，补充测试。",
+      "license_text_changed": false,
+      "formal_adoption_created": false
+    }
+  ]
+}

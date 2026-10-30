@@ -1,0 +1,4 @@
+interface:
+  display_name: "允夏项目采用"
+  short_description: "为项目适配指定许可协议，补问范围事实、生成声明并增量检查材料"
+  default_prompt: "用 $yunxia 为这个项目采用指定的允夏系列协议，先检查范围并补问必要事实。"

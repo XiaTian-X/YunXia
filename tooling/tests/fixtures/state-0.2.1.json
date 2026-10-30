@@ -1,0 +1,144 @@
+{
+  "fixture_kind": "actual_0.2.1_generated_state_not_project_facts",
+  "source_tool_version": "0.2.1",
+  "state": {
+    "adoption": {
+      "accept_draft": true,
+      "agreement": {
+        "agreement_id": "yunxia-license",
+        "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+        "text_revision": "2026-10-24.naming-1",
+        "version": "0.9.3"
+      },
+      "authorized": true,
+      "confirmation": {
+        "basis": "fictional regression evidence",
+        "confirmed_by": "fixture maintainer"
+      },
+      "context_id": "3f190bfa4d3d3c0b44503280a8683483d1a5050112c0c7a3d74c2b4d0b2c27ab",
+      "date": "2026-10-25",
+      "snapshot_id": "0f888b9fc6bd40ad6bb953f5d27f9cee8e55d18f868f520bbc81e20ed14bd6e0"
+    },
+    "answers": {
+      "src/main.py": {
+        "basis": "fixture source",
+        "confirmation": {
+          "basis": "fictional regression evidence",
+          "confirmed_by": "fixture maintainer"
+        },
+        "disposition": "selected",
+        "notice_hashes": {},
+        "origin": "human",
+        "sha256": "2755b450aa9aad0524dc8a358fce93a1d90357d8fb4dbb08c5cf434ad2861ba9"
+      }
+    },
+    "deferred": {},
+    "generations": {
+      "adopt": {
+        "agreement": {
+          "agreement_id": "yunxia-license",
+          "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+          "text_revision": "2026-10-24.naming-1",
+          "version": "0.9.3"
+        },
+        "context_id": "3f190bfa4d3d3c0b44503280a8683483d1a5050112c0c7a3d74c2b4d0b2c27ab",
+        "files": {
+          "LICENSE.txt": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+          "PROJECT-RIGHTS.md": "4e864957ff76504c01ae94b27904827e015351b1b78a527b421f39e55d4d1608"
+        },
+        "license_sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+        "snapshot_id": "0f888b9fc6bd40ad6bb953f5d27f9cee8e55d18f868f520bbc81e20ed14bd6e0",
+        "tool_version": "0.2.1"
+      }
+    },
+    "history": [
+      {
+        "at": "2026-10-25T07:55:45+00:00",
+        "changes": {
+          "added": [
+            "src/main.py"
+          ],
+          "changed": [],
+          "coverage_changed": false,
+          "removed": [],
+          "rename_candidates": []
+        },
+        "event": "scan"
+      },
+      {
+        "at": "2026-10-25T07:55:45+00:00",
+        "event": "agreement_selection",
+        "previous": null,
+        "selected": {
+          "agreement_id": "yunxia-license",
+          "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+          "text_revision": "2026-10-24.naming-1",
+          "version": "0.9.3"
+        }
+      },
+      {
+        "at": "2026-10-25T07:55:46+00:00",
+        "confirmed_by": "fixture maintainer",
+        "event": "answer",
+        "paths": [
+          "src/main.py"
+        ]
+      }
+    ],
+    "managed_outputs": {
+      "LICENSE.txt": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "PROJECT-RIGHTS.md": "4e864957ff76504c01ae94b27904827e015351b1b78a527b421f39e55d4d1608"
+    },
+    "profile": {
+      "delivery": {
+        "audience": "fixture users",
+        "description": "source directory"
+      },
+      "delivery_confirmation": {
+        "basis": "fictional regression evidence",
+        "confirmed_by": "fixture maintainer"
+      },
+      "identity": {
+        "licensor": "Fixture author",
+        "project_name": "Legacy fixture",
+        "role": "author"
+      },
+      "identity_confirmation": {
+        "basis": "fictional regression evidence",
+        "confirmed_by": "fixture maintainer"
+      }
+    },
+    "selected_agreement": {
+      "agreement_id": "yunxia-license",
+      "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "text_revision": "2026-10-24.naming-1",
+      "version": "0.9.3"
+    },
+    "snapshot": {
+      "coverage_issues": [],
+      "dependencies": [],
+      "files": {
+        "src/main.py": {
+          "kind": "file",
+          "observations": [],
+          "sha256": "2755b450aa9aad0524dc8a358fce93a1d90357d8fb4dbb08c5cf434ad2861ba9",
+          "size": 24
+        }
+      },
+      "skipped": []
+    },
+    "state_version": 2,
+    "tool_version": "0.2.1"
+  },
+  "materials": {
+    "src/main.py": "print(\"legacy fixture\")\n",
+    "PROJECT-RIGHTS.md": "# 项目权利与许可范围\n\n状态：依据记录中的用户授权生成；权限依据未经独立核验。\n\n项目：Legacy fixture\n许可主体：Fixture author\n身份：author\n\n协议：允夏许可证 / YunXia License；版本：0.9.3；文本修订：2026-10-24.naming-1；状态：review-draft。\n协议ID：yunxia-license；固定全文：LICENSE.txt；SHA-256：1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936。\n交付范围：source directory\n接收者：fixture users\n\n采用日期：2026-10-25\n\n上述主体依据其确认的权限，将下表“所选协议范围”中的确切内容按上述固定版本授权。\n分别许可和排除项不因本声明改授；原有有效授权、署名和适用条件按其依据保留。\n\n| 文件 | 内容 SHA-256 | 范围 |\n|---|---|---|\n| src/main.py | 2755b450aa9aad0524dc8a358fce93a1d90357d8fb4dbb08c5cf434ad2861ba9 | 所选协议范围 |\n\n范围按列出的内容快照确定。文件名和管理记录不是额外的下游许可条件。\n排除项只表示未由本声明授权，不证明其不在交付物中或无需履行其他条件。\n扫描覆盖限制与内部证据单独保存；文件整理不能补足缺失的权限。\n"
+  },
+  "license_material": "LICENSE.txt",
+  "license_reference": {
+    "version": "0.9.3",
+    "text_revision": "2026-10-24.naming-1",
+    "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+    "agreement_id": "yunxia-license"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "agreement_id": "yunxia-license",
+  "name": "允夏许可证 / YunXia License",
+  "kind": "license",
+  "versions": [
+    "yunxia-license/versions/0.9.2/original/manifest.json",
+    "yunxia-license/versions/0.9.3/pre-naming/manifest.json",
+    "yunxia-license/versions/0.9.3/2026-10-24.naming-1/manifest.json"
+  ]
+}

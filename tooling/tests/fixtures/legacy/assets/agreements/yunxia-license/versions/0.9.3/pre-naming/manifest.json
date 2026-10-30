@@ -1,0 +1,20 @@
+{
+  "manifest_version": 1,
+  "agreement_id": "yunxia-license",
+  "version": "0.9.3",
+  "text_revision": "pre-naming",
+  "sha256": "4c38bbc1f654f0fb9e9eeef65a708ac9a52ea832d48a2af95d58b3e374c79bba",
+  "display_name": "中文智能体宽松许可证",
+  "kind": "license",
+  "status": "archived-draft",
+  "text_path": "text.txt",
+  "renderer": "scope-license-v1",
+  "capabilities": [
+    "inspect",
+    "draft",
+    "adopt",
+    "verify"
+  ],
+  "output_name": "LICENSE.yunxia-0.9.3.txt",
+  "source_path": "history/中文智能体宽松许可证-0.9.3-审阅草案.txt"
+}

@@ -1,0 +1,800 @@
+"""Behavioral tests against temporary target projects, never the source package."""
+import base64
+import copy
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT = ROOT / 'tooling/yunxia.py'
+sys.path.insert(0,str(ROOT/'tooling/src'))
+from yunxia.project import workflow as yx
+LEGACY = ROOT/'tooling/tests/fixtures/legacy'
+
+
+
+class YunXiaWorkflow(unittest.TestCase):
+    def setUp(self):
+        yx.configure_unit('main')
+        fixture_patch = patch.object(yx, 'SKILL', LEGACY)
+        fixture_patch.start(); self.addCleanup(fixture_patch.stop)
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name) / 'project'
+        self.root.mkdir()
+        self.write('src/main.py', 'print("hello")\n')
+
+    def write(self, rel, text):
+        p = self.root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding='utf-8')
+
+    def scan(self):
+        with yx.lock(self.root):
+            result = yx.scan(self.root)
+            if yx.load_state(self.root)['selected_agreement'] is None:
+                ref = yx.catalog().recommended
+                yx.select_agreement(self.root, ref['agreement_id'], ref['version'], ref['text_revision'])
+                result['selected_agreement'] = ref
+            return result
+
+    def answer(self, payload):
+        payload = copy.deepcopy(payload)
+        if 'adoption' in payload:
+            payload['adoption'].setdefault('agreement', yx.load_state(self.root)['selected_agreement'])
+        with yx.lock(self.root):
+            return yx.answer(self.root, payload)
+
+    def facts(self, paths=None):
+        return {'confirmed_by': 'fixture user', 'basis': 'PRIVATE-AUTHORITY-EVIDENCE',
+                'identity': {'project_name': 'Sample', 'licensor': 'Sample author', 'role': 'author'},
+                'delivery': {'audience': 'recipients', 'description': 'source archive'},
+                'assets': [{'paths': paths or ['src/main.py'], 'disposition': 'yunxia',
+                            'origin': 'human', 'basis': 'PRIVATE-SOURCE-EVIDENCE'}]}
+
+    def adopt(self):
+        snapshot = self.scan()['snapshot_id']
+        payload = self.facts()
+        payload['adoption'] = {'authorized': True, 'accept_draft': True,
+                               'date': '2026-10-24', 'snapshot_id': snapshot}
+        self.answer(payload)
+        return self.generate('adopt')
+
+    def generate(self, mode='draft', write=True):
+        with yx.lock(self.root):
+            return yx.generate(self.root, mode, write)
+
+    def assert_error(self, code, fn, *args, **kwargs):
+        with self.assertRaises((yx.WorkflowError, yx.CatalogError)) as result:
+            fn(*args, **kwargs)
+        self.assertEqual(result.exception.code, code)
+
+    def cli(self, *args):
+        return subprocess.run([sys.executable, '-B', str(SCRIPT), '--root', str(self.root), *args],
+                              capture_output=True, text=True, env=dict(os.environ, YUNXIA_CATALOG_ROOT=str(LEGACY/'assets/agreements')))
+
+    def test_read_only_scan_does_not_create_state(self):
+        result = yx.scan(self.root, persist=False)
+        self.assertIn('src/main.py', result['files'])
+        self.assertFalse((self.root / '.yunxia').exists())
+
+    def test_questions_are_bounded_and_missing_facts_generate_draft(self):
+        self.scan()
+        result = yx.questions(self.root)
+        self.assertEqual(len(result['questions']), 3)
+        self.assertTrue(all(q['unknown_allowed'] for q in result['questions']))
+        self.generate()
+        self.assertFalse((self.root / 'PROJECT-RIGHTS.md').exists())
+        self.assertTrue((self.root / '.yunxia/draft/PROJECT-RIGHTS.md').is_file())
+        self.assertTrue(yx.verify(self.root, mode='draft')['structure_valid'])
+        self.assert_error('ADOPTION_BLOCKED', self.generate, 'adopt')
+
+    def test_complete_local_adoption_cli_and_license_bytes(self):
+        scan = json.loads(self.cli('scan').stdout)
+        ref = yx.catalog().recommended
+        chosen = self.cli('select', '--agreement', ref['agreement_id'], '--version', ref['version'], '--revision', ref['text_revision'])
+        self.assertEqual(chosen.returncode, 0, chosen.stdout)
+        payload = self.facts()
+        payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': scan['snapshot_id'], 'agreement': ref}
+        p = Path(self.temp.name) / 'answers.json'
+        p.write_bytes(yx.encoded(payload))
+        result = self.cli('answer', '--input', str(p))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = self.cli('generate', '--mode', 'adopt', '--write')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = self.cli('verify')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / 'LICENSE.txt').read_bytes(), yx.license_bytes())
+        self.assertEqual(json.loads(result.stdout)['legal_assessment'], 'not_performed')
+
+    def test_adoption_requires_explicit_scope_snapshot_and_draft_acceptance(self):
+        self.scan()
+        self.answer(self.facts())
+        self.assert_error('ADOPTION_NOT_CONFIRMED', self.generate, 'adopt')
+        payload = self.facts()
+        payload['adoption'] = {'authorized': True, 'accept_draft': False, 'date': '2026-10-24',
+                               'snapshot_id': self.scan()['snapshot_id']}
+        self.assert_error('ADOPTION_FORMAT', self.answer, payload)
+        payload['adoption']['accept_draft'] = True
+        payload['adoption']['snapshot_id'] = 'outdated'
+        self.assert_error('ADOPTION_SNAPSHOT_STALE', self.answer, payload)
+
+    def test_repeat_run_preserves_state_and_material_bytes(self):
+        self.adopt()
+        before = {p: p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        self.scan()
+        result = self.generate('adopt')
+        self.assertTrue(all(c['action'] == 'unchanged' for c in result['changes']))
+        after = {p: p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        self.assertEqual(before, after)
+        self.assertEqual(yx.questions(self.root)['questions'], [])
+
+    def test_change_invalidates_only_changed_asset_and_adoption(self):
+        self.write('src/other.py', 'pass\n')
+        self.scan()
+        self.answer(self.facts(['src/main.py', 'src/other.py']))
+        self.write('src/main.py', 'print("changed")\n')
+        self.assert_error('SCAN_STALE', self.generate)
+        result = self.scan()
+        self.assertEqual(result['changes']['changed'], ['src/main.py'])
+        state = yx.load_state(self.root)
+        self.assertTrue(yx.active_answer(state, 'src/other.py'))
+        self.assertFalse(yx.active_answer(state, 'src/main.py'))
+
+    def test_rename_provides_hint_and_retains_previous_evidence(self):
+        self.scan()
+        self.answer(self.facts())
+        (self.root / 'src/main.py').rename(self.root / 'src/renamed.py')
+        result = self.scan()
+        self.assertEqual(result['changes']['rename_candidates'][0]['from'], 'src/main.py')
+        state = yx.load_state(self.root)
+        self.assertEqual(state['answers']['src/main.py']['basis'], 'PRIVATE-SOURCE-EVIDENCE')
+        self.assertFalse(yx.active_answer(state, 'src/renamed.py'))
+
+    def test_existing_license_and_notices_are_preserved(self):
+        original = 'Existing upstream license\n'
+        self.write('LICENSE', original)
+        scan = self.scan()
+        payload = self.facts()
+        payload['assets'].append({'paths': ['LICENSE'], 'disposition': 'preserve', 'origin': 'third_party',
+                                  'basis': 'existing notice', 'license_files': ['LICENSE'],
+                                  'public_notice': 'Original notice retained.'})
+        payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': scan['snapshot_id']}
+        self.answer(payload)
+        self.generate('adopt')
+        self.assertEqual((self.root / 'LICENSE').read_text(), original)
+        self.assertEqual((self.root / 'LICENSE.yunxia-0.9.3.txt').read_bytes(), yx.license_bytes())
+        self.assertTrue((self.root / 'THIRD-PARTY.md').exists())
+
+    def test_changed_notice_invalidates_linked_assets(self):
+        self.write('vendor/lib.py', 'pass\n')
+        self.write('vendor/LICENSE', 'upstream v1\n')
+        self.scan()
+        payload = self.facts()
+        payload['assets'].append({'paths': ['vendor/lib.py', 'vendor/LICENSE'], 'disposition': 'preserve',
+                                  'origin': 'third_party', 'basis': 'upstream', 'license_files': ['vendor/LICENSE']})
+        self.answer(payload)
+        self.write('vendor/LICENSE', 'upstream v2\n')
+        self.scan()
+        self.assertIn('UPSTREAM_NOTICE_CHANGED', {i['code'] for i in yx.questions(self.root)['blockers']})
+
+    def test_source_notice_prevents_implicit_relicensing(self):
+        self.write('src/main.py', '# SPDX-License-Identifier: MIT\npass\n')
+        self.scan()
+        self.assert_error('EXISTING_NOTICE_REQUIRES_EXPLICIT_SCOPE_DECISION', self.answer, self.facts())
+
+    def test_private_evidence_is_never_exported(self):
+        self.adopt()
+        for rel in ('PROJECT-RIGHTS.md', 'LICENSE.txt'):
+            self.assertNotIn('PRIVATE-', (self.root / rel).read_text())
+        self.assertEqual((self.root / '.yunxia').stat().st_mode & 0o777, 0o700)
+        self.assertEqual((self.root / yx.STATE).stat().st_mode & 0o777, 0o600)
+
+    def test_existing_manual_file_is_not_overwritten(self):
+        self.write('PROJECT-RIGHTS.md', 'Human-maintained declaration\n')
+        self.scan()
+        payload = self.facts(['src/main.py', 'PROJECT-RIGHTS.md'])
+        payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': self.scan()['snapshot_id']}
+        self.answer(payload)
+        preview = self.generate('adopt', write=False)
+        self.assertIn('PROJECT-RIGHTS.md', preview['conflicts'])
+        self.assert_error('MANUAL_EDIT_CONFLICT', self.generate, 'adopt')
+        self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_text(), 'Human-maintained declaration\n')
+        self.assertFalse((self.root / 'LICENSE.txt').exists())
+
+    def test_modified_generated_file_is_not_overwritten(self):
+        self.adopt()
+        self.write('PROJECT-RIGHTS.md', 'Human edit\n')
+        self.assert_error('MANUAL_EDIT_CONFLICT', self.generate, 'adopt')
+        self.assertFalse(yx.verify(self.root)['structure_valid'])
+        self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_text(), 'Human edit\n')
+
+    def test_profile_change_invalidates_adoption(self):
+        self.adopt()
+        payload = self.facts()
+        payload['delivery']['description'] = 'new distribution'
+        self.answer(payload)
+        self.assert_error('ADOPTION_NOT_CONFIRMED', self.generate, 'adopt')
+
+    def test_verify_cannot_replace_missing_adoption_record_with_generated_files(self):
+        self.adopt()
+        state = yx.load_state(self.root)
+        del state['adoption']
+        self.write(yx.STATE, json.dumps(state))
+        result = yx.verify(self.root)
+        self.assertFalse(result['structure_valid'])
+        self.assertIn('ADOPTION_NOT_CONFIRMED', {i['code'] for i in result['issues']})
+
+    def test_scan_skips_secrets_and_symlinks_without_following_them(self):
+        self.write('.env', 'TOKEN=DO-NOT-ECHO')
+        self.write('private.pem', 'DO-NOT-ECHO')
+        outside = Path(self.temp.name) / 'outside.txt'
+        outside.write_text('DO-NOT-ECHO')
+        (self.root / 'link.txt').symlink_to(outside)
+        result = self.scan()
+        self.assertNotIn('DO-NOT-ECHO', json.dumps(result))
+        self.assertEqual({x['path'] for x in result['skipped']}, {'.env', 'private.pem', 'link.txt'})
+
+    def test_state_symlink_and_path_traversal_rejected(self):
+        outside = Path(self.temp.name) / 'outside'
+        outside.mkdir()
+        (self.root / '.yunxia').symlink_to(outside, target_is_directory=True)
+        self.assert_error('SYMLINK_PATH', self.scan)
+        (self.root / '.yunxia').unlink()
+        self.scan()
+        p = self.facts(['../outside'])
+        self.assert_error('UNSAFE_PATH', self.answer, p)
+
+    def test_dependency_and_coverage_hints_do_not_grant_rights(self):
+        self.write('package.json', json.dumps({'dependencies': {'demo': '^1.0'}}))
+        self.write('package-lock.json', json.dumps({'packages': {'node_modules/demo': {'version': '1.2', 'license': 'MIT'}}}))
+        self.write('requirements.txt', 'sample==1.0\n-r other.txt\n')
+        self.write('Cargo.toml', '[package]\nname="example"\n')
+        self.write('assets.zip', 'opaque')
+        result = self.scan()
+        self.assertEqual(len(result['dependency_hints']), 3)
+        reasons = {x['reason'] for x in result['coverage_issues']}
+        self.assertTrue({'requirement_not_parsed', 'unsupported_dependency_manifest', 'container_contents_not_inspected'} <= reasons)
+        self.assertFalse(yx.load_state(self.root)['answers'])
+
+    def test_unknown_facts_stay_pending(self):
+        self.scan()
+        payload = self.facts()
+        payload['assets'][0].update(disposition='pending', origin='unknown')
+        self.answer(payload)
+        result = yx.questions(self.root)
+        self.assertEqual(result['questions'], [])
+        self.assertTrue(result['blockers'])
+        self.assertEqual(result['deferred'][0]['paths'], ['src/main.py'])
+        self.scan()
+        self.assertEqual(yx.questions(self.root), result)
+        self.assert_error('ADOPTION_BLOCKED', self.generate, 'adopt')
+
+    def test_explicit_deferral_does_not_reask_or_authorize(self):
+        self.scan()
+        self.answer({'confirmed_by': 'user', 'basis': 'user cannot confirm yet',
+                     'defer': ['identity', 'delivery', 'adoption'],
+                     'assets': [{'paths': ['src/main.py'], 'disposition': 'pending',
+                                 'origin': 'unknown', 'basis': 'unknown'}]})
+        self.assertEqual(yx.questions(self.root)['questions'], [])
+        self.assertEqual(len(yx.questions(self.root)['deferred']), 3)
+        self.assert_error('ADOPTION_BLOCKED', self.generate, 'adopt')
+        self.answer(self.facts())
+        self.assertEqual(yx.questions(self.root)['deferred'][0]['code'], 'ADOPTION_NOT_CONFIRMED')
+        self.assert_error('ADOPTION_NOT_CONFIRMED', self.generate, 'adopt')
+
+    def test_changed_previously_unknown_file_is_asked_again(self):
+        self.scan()
+        payload = self.facts()
+        payload['assets'][0].update(disposition='pending', origin='unknown')
+        self.answer(payload)
+        self.write('src/main.py', 'changed\n')
+        self.scan()
+        self.assertEqual(yx.questions(self.root)['questions'][0]['paths'], ['src/main.py'])
+
+    def test_absent_optional_deferrals_do_not_create_spurious_answer_event(self):
+        self.scan()
+        self.answer(self.facts())
+        state = yx.load_state(self.root)
+        state.pop('deferred')
+        self.write(yx.STATE, json.dumps(state))
+        before = (self.root / yx.STATE).read_bytes()
+        self.assertFalse(self.answer(self.facts())['saved'])
+        self.assertEqual((self.root / yx.STATE).read_bytes(), before)
+
+    def test_atomic_failure_rolls_back_existing_and_new_files(self):
+        self.adopt()
+        old = (self.root / 'PROJECT-RIGHTS.md').read_bytes()
+        real_atomic = yx.atomic
+        def one_failure(path, content, private=False):
+            if path.name == 'AI-USAGE.md':
+                raise OSError('simulated disk failure')
+            return real_atomic(path, content, private)
+        with yx.lock(self.root), patch.object(yx, 'atomic', side_effect=one_failure):
+            with self.assertRaises(OSError):
+                yx.transaction(self.root, {'PROJECT-RIGHTS.md': b'new', 'AI-USAGE.md': b'new'})
+        self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_bytes(), old)
+        self.assertFalse((self.root / 'AI-USAGE.md').exists())
+        self.assertFalse((self.root / yx.JOURNAL).exists())
+
+    def test_interrupted_write_requires_recovery_and_restores_state(self):
+        self.scan()
+        old = (self.root / yx.STATE).read_bytes()
+        real_atomic = yx.atomic
+        def crash_after_output(path, content, private=False):
+            real_atomic(path, content, private)
+            if path.name == 'PROJECT-RIGHTS.md':
+                raise KeyboardInterrupt()
+        with yx.lock(self.root), patch.object(yx, 'atomic', side_effect=crash_after_output):
+            with self.assertRaises(KeyboardInterrupt):
+                yx.generate(self.root, write=True)
+        self.assert_error('RECOVERY_REQUIRED', yx.load_state, self.root)
+        result = self.cli('recover')
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.root / yx.STATE).read_bytes(), old)
+        self.assertFalse((self.root / '.yunxia/draft/PROJECT-RIGHTS.md').exists())
+
+    def test_recovery_does_not_overwrite_intervening_manual_change(self):
+        self.scan()
+        rel = '.yunxia/draft/PROJECT-RIGHTS.md'
+        self.write(rel, 'manual edit')
+        journal = {'entries': [{'path': rel, 'before': None, 'after': base64.b64encode(b'generated').decode()}]}
+        self.write(yx.JOURNAL, json.dumps(journal))
+        self.assert_error('RECOVERY_CONFLICT', yx.restore, self.root)
+        self.assertEqual((self.root / rel).read_text(), 'manual edit')
+
+    def test_lock_prevents_concurrent_writer(self):
+        with yx.lock(self.root):
+            result = self.cli('scan')
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stdout)['error'], 'LOCKED')
+
+    def test_artifact_detects_missing_license_and_private_state(self):
+        self.adopt()
+        artifact = Path(self.temp.name) / 'release.zip'
+        with zipfile.ZipFile(artifact, 'w') as z:
+            z.write(self.root / 'src/main.py', 'src/main.py')
+            z.write(self.root / 'PROJECT-RIGHTS.md', 'PROJECT-RIGHTS.md')
+            z.writestr('.yunxia/answers.json', 'PRIVATE')
+        result = yx.verify(self.root, artifact=artifact)
+        codes = {i['code'] for i in result['issues']}
+        self.assertTrue({'ARTIFACT_MISSING_OR_CHANGED', 'PRIVATE_STATE_INCLUDED'} <= codes)
+
+    def test_complete_source_artifact_passes(self):
+        self.adopt()
+        artifact = Path(self.temp.name) / 'release.zip'
+        with zipfile.ZipFile(artifact, 'w') as z:
+            for rel in ('src/main.py', 'PROJECT-RIGHTS.md', 'LICENSE.txt'):
+                z.write(self.root / rel, 'release/' + rel)
+        self.assertTrue(yx.verify(self.root, artifact=artifact, prefix='release')['structure_valid'])
+
+    def test_artifact_traversal_and_unknown_content_fail(self):
+        self.adopt()
+        artifact = Path(self.temp.name) / 'release.zip'
+        with zipfile.ZipFile(artifact, 'w') as z:
+            z.writestr('../evil', 'x')
+        self.assert_error('UNSAFE_PATH', yx.verify, self.root, artifact=artifact)
+        with zipfile.ZipFile(artifact, 'w') as z:
+            z.writestr('unknown.py', 'x')
+        result = yx.verify(self.root, artifact=artifact)
+        self.assertIn('UNSCANNED_ARTIFACT_FILE', {x['code'] for x in result['issues']})
+
+    def test_invalid_json_state_and_cli_errors_are_structured(self):
+        self.scan()
+        for value in ([], None, {'state_version': 999}):
+            self.write(yx.STATE, json.dumps(value))
+            result = self.cli('questions')
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stderr, '')
+            self.assertIn('error', json.loads(result.stdout))
+
+    def test_invalid_nested_state_returns_json_not_traceback(self):
+        self.adopt()
+        original = yx.load_state(self.root)
+        mutations = [(['profile', 'identity'], []), (['answers', 'src/main.py', 'notice_hashes'], []),
+                     (['generations', 'adopt', 'files'], []), (['adoption'], None)]
+        for path, value in mutations:
+            with self.subTest(path=path):
+                state = copy.deepcopy(original)
+                cursor = state
+                for key in path[:-1]:
+                    cursor = cursor[key]
+                cursor[path[-1]] = value
+                self.write(yx.STATE, json.dumps(state))
+                result = self.cli('verify')
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stderr, '')
+                self.assertEqual(json.loads(result.stdout)['error'], 'INVALID_STATE')
+
+    def test_credentials_and_urls_are_not_read_or_echoed(self):
+        self.write('.aws/credentials', 'SECRET-PASSWORD')
+        self.write('service-account-demo.json', '{"private_key":"SECRET-PASSWORD"}')
+        self.write('package.json', json.dumps({'dependencies': {'demo': 'https://user:SECRET-PASSWORD@example.test/pkg'}}))
+        self.write('pyproject.toml', '[project]\ndependencies=["demo @ https://user:SECRET-PASSWORD@example.test/pkg"]\n')
+        result = self.scan()
+        self.assertNotIn('SECRET-PASSWORD', json.dumps(result))
+        self.assertNotIn('service-account-demo.json', result['files'])
+        self.assertNotIn('.aws/credentials', result['files'])
+
+    def test_bundled_license_tampering_is_rejected(self):
+        self.scan()
+        fake = Path(self.temp.name) / 'skill'
+        shutil.copytree(yx.SKILL / 'assets', fake / 'assets')
+        (fake / 'assets/agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/text.txt').write_text('changed')
+        with patch.object(yx, 'SKILL', fake):
+            self.assert_error('AGREEMENT_TEXT_HASH_MISMATCH', self.generate)
+
+    def test_generated_file_symlink_does_not_write_outside_project(self):
+        self.adopt()
+        outside = Path(self.temp.name) / 'private.txt'
+        outside.write_text('outside')
+        (self.root / 'PROJECT-RIGHTS.md').unlink()
+        (self.root / 'PROJECT-RIGHTS.md').symlink_to(outside)
+        self.assert_error('SYMLINK_PATH', self.generate, 'adopt')
+        self.assertEqual(outside.read_text(), 'outside')
+
+    def test_malformed_dependency_record_is_a_coverage_issue(self):
+        self.write('package.json', '{"dependencies":[]}')
+        result = self.scan()
+        self.assertEqual(result['coverage_issues'][0]['reason'], 'invalid_dependency_manifest')
+
+    def test_private_directory_is_not_allowed_in_artifact_prefix(self):
+        self.adopt()
+        dest = Path(self.temp.name) / 'artifact'
+        dest.mkdir()
+        (dest / 'link').symlink_to(self.root, target_is_directory=True)
+        self.assert_error('ARTIFACT_SYMLINK', yx.verify, self.root, artifact=dest, prefix='link')
+
+    def select(self, ref):
+        with yx.lock(self.root):
+            return yx.select_agreement(self.root, ref['agreement_id'], ref['version'], ref['text_revision'])
+
+    def catalog_copy(self):
+        fake = Path(self.temp.name) / 'catalog-skill'
+        shutil.copytree(yx.SKILL / 'assets', fake / 'assets')
+        return fake
+
+    def test_adoption_without_protocol_binding_is_rejected(self):
+        snapshot = self.scan()
+        payload = self.facts()
+        payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': snapshot['snapshot_id']}
+        with yx.lock(self.root):
+            self.assert_error('ADOPTION_FORMAT', yx.answer, self.root, payload)
+
+    def test_selection_is_explicit_and_does_not_grant_adoption(self):
+        with yx.lock(self.root):
+            yx.scan(self.root)
+        self.assertEqual(yx.questions(self.root)['questions'][0]['id'], 'AGREEMENT_NOT_SELECTED')
+        self.assert_error('AGREEMENT_NOT_SELECTED', self.generate)
+        ref = yx.catalog().recommended
+        self.select(ref)
+        self.assertNotIn('adoption', yx.load_state(self.root))
+
+    def test_new_catalog_recommendation_does_not_upgrade_existing_project(self):
+        self.adopt()
+        original = (self.root / yx.STATE).read_bytes()
+        license_before = (self.root / 'LICENSE.txt').read_bytes()
+        fake = self.catalog_copy()
+        index = fake / 'assets/agreements/catalog.json'
+        data = json.loads(index.read_text())
+        with patch.object(yx, 'SKILL', fake):
+            old = yx.catalog().select('yunxia-license', '0.9.2', 'original')
+            data['recommended'] = yx.reference(old)
+            index.write_bytes(yx.encoded(data))
+            self.assertEqual(yx.questions(self.root)['questions'], [])
+            self.generate('adopt')
+            self.assertTrue(yx.verify(self.root)['structure_valid'])
+        self.assertEqual((self.root / yx.STATE).read_bytes(), original)
+        self.assertEqual((self.root / 'LICENSE.txt').read_bytes(), license_before)
+
+    def test_same_version_replaced_text_cannot_reuse_old_confirmation(self):
+        self.adopt()
+        before = (self.root / yx.STATE).read_bytes()
+        fake = self.catalog_copy()
+        folder = fake / 'assets/agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1'
+        body = b'TEST ONLY: changed terms\n'
+        (folder / 'text.txt').write_bytes(body)
+        manifest = json.loads((folder / 'manifest.json').read_text())
+        manifest['sha256'] = yx.digest(body)
+        (folder / 'manifest.json').write_bytes(yx.encoded(manifest))
+        index = fake / 'assets/agreements/catalog.json'
+        data = json.loads(index.read_text()); data['recommended'] = yx.reference(manifest)
+        index.write_bytes(yx.encoded(data))
+        with patch.object(yx, 'SKILL', fake):
+            self.assert_error('AGREEMENT_PIN_MISMATCH', self.generate, 'adopt')
+            self.assert_error('AGREEMENT_PIN_MISMATCH', yx.verify, self.root)
+        self.assertEqual((self.root / yx.STATE).read_bytes(), before)
+
+    def test_different_revision_requires_its_own_adoption(self):
+        self.adopt()
+        old_adoption = copy.deepcopy(yx.load_state(self.root)['adoption'])
+        old = yx.catalog().select('yunxia-license', '0.9.3', 'pre-naming')
+        self.select(yx.reference(old))
+        self.assert_error('ADOPTION_NOT_CONFIRMED', self.generate, 'adopt')
+        self.assertIn('GENERATION_AGREEMENT_MISMATCH', {i['code'] for i in yx.verify(self.root)['issues']})
+        payload = self.facts()
+        payload['adoption'] = old_adoption
+        payload['adoption'].pop('context_id'); payload['adoption'].pop('confirmation')
+        self.assert_error('ADOPTION_AGREEMENT_MISMATCH', self.answer, payload)
+
+    def test_historical_version_can_be_selected_and_verified(self):
+        snap = self.scan()
+        old = yx.catalog().select('yunxia-license', '0.9.2', 'original')
+        self.select(yx.reference(old))
+        payload = self.facts()
+        payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': snap['snapshot_id']}
+        self.answer(payload); self.generate('adopt')
+        self.assertEqual((self.root / 'LICENSE.txt').read_bytes(), old['_text'])
+        self.assertTrue(yx.verify(self.root)['structure_valid'])
+
+    def test_switch_and_confirm_archives_previous_adoption_and_material(self):
+        self.adopt()
+        old = (self.root / 'PROJECT-RIGHTS.md').read_bytes()
+        entry = yx.catalog().select('yunxia-license', '0.9.2', 'original')
+        self.select(yx.reference(entry))
+        payload = self.facts()
+        payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': self.scan()['snapshot_id']}
+        self.answer(payload); self.generate('adopt')
+        history = yx.load_state(self.root)['history']
+        self.assertTrue(any(h['event'] == 'superseded_adoption' for h in history))
+        entry = next(h for h in history if h['event'] == 'superseded_generation')
+        self.assertEqual(base64.b64decode(entry['content_base64']['PROJECT-RIGHTS.md']), old)
+        self.assertTrue(yx.verify(self.root)['structure_valid'])
+
+    def test_state_v1_migration_preserves_evidence_without_inventing_binding(self):
+        self.adopt()
+        state = yx.load_state(self.root)
+        state['state_version'] = 1
+        state.pop('selected_agreement'); state.pop('managed_outputs')
+        state['adoption'].pop('agreement')
+        for g in state['generations'].values():
+            g.pop('agreement')
+        self.write(yx.STATE, json.dumps(state))
+        before = (self.root / yx.STATE).read_bytes()
+        license_before = (self.root / 'LICENSE.txt').read_bytes()
+        self.assert_error('STATE_MIGRATION_REQUIRED', yx.scan, self.root, persist=False)
+        process = self.cli('migrate-state')
+        self.assertEqual(process.returncode, 0, process.stdout)
+        migrated = yx.load_state(self.root)
+        self.assertIsNone(migrated['selected_agreement'])
+        self.assertNotIn('adoption', migrated)
+        self.assertEqual(migrated['answers'], state['answers'])
+        history = migrated['history'][-1]
+        self.assertEqual(base64.b64decode(history['original_state_base64']), before)
+        self.assertEqual((self.root / 'LICENSE.txt').read_bytes(), license_before)
+        self.select(yx.catalog().recommended)
+        self.assert_error('ADOPTION_NOT_CONFIRMED', self.generate, 'adopt')
+        after = (self.root / yx.STATE).read_bytes()
+        self.assertFalse(json.loads(self.cli('migrate-state').stdout)['migrated'])
+        self.assertEqual((self.root / yx.STATE).read_bytes(), after)
+
+    def add_fixture_protocol(self, fake, kind='license', renderer='scope-license-v1'):
+        catalog_root = fake / 'assets/agreements'
+        folder = catalog_root / 'fixture/versions/1/test'
+        folder.mkdir(parents=True)
+        body = b'Fictional test protocol only.\n'
+        (folder / 'text.txt').write_bytes(body)
+        manifest = {'manifest_version': 1, 'agreement_id': 'fixture', 'version': '1', 'text_revision': 'test',
+                    'sha256': yx.digest(body), 'display_name': 'Fixture protocol', 'kind': kind,
+                    'status': 'test-only', 'text_path': 'text.txt', 'renderer': renderer,
+                    'capabilities': ['inspect', 'draft', 'adopt', 'verify'] if kind == 'license' else ['inspect'],
+                    'output_name': 'LICENSE.fixture-1.txt'}
+        (folder / 'manifest.json').write_bytes(yx.encoded(manifest))
+        (catalog_root / 'fixture/agreement.json').write_bytes(yx.encoded({'agreement_id': 'fixture', 'versions': ['fixture/versions/1/test/manifest.json']}))
+        index = json.loads((catalog_root / 'catalog.json').read_text())
+        index['agreements'].append('fixture/agreement.json')
+        (catalog_root / 'catalog.json').write_bytes(yx.encoded(index))
+        return yx.reference(manifest)
+
+    def test_another_license_uses_catalog_data_without_changing_code(self):
+        fake = self.catalog_copy()
+        ref = self.add_fixture_protocol(fake)
+        with patch.object(yx, 'SKILL', fake):
+            snap = self.scan()
+            self.select(ref)
+            payload = self.facts(); payload['assets'][0]['disposition'] = 'selected'
+            payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': snap['snapshot_id']}
+            self.answer(payload); self.generate('adopt')
+            self.assertTrue(yx.verify(self.root)['structure_valid'])
+            self.assertEqual((self.root / 'LICENSE.txt').read_bytes(), b'Fictional test protocol only.\n')
+            self.assertIn('Fixture protocol', (self.root / 'PROJECT-RIGHTS.md').read_text())
+
+    def test_unsupported_type_is_inspectable_but_not_generated_as_license(self):
+        fake = self.catalog_copy()
+        ref = self.add_fixture_protocol(fake, kind='nda', renderer=None)
+        with patch.object(yx, 'SKILL', fake):
+            self.scan(); self.select(ref)
+            self.assertEqual(yx.selected(yx.load_state(self.root))['kind'], 'nda')
+            self.assert_error('UNSUPPORTED_AGREEMENT_WORKFLOW', self.generate)
+
+    def test_duplicate_catalog_identity_and_traversal_are_rejected(self):
+        fake = self.catalog_copy()
+        p = fake / 'assets/agreements/yunxia-license/agreement.json'
+        data = json.loads(p.read_text())
+        data['versions'].append(data['versions'][0]); p.write_bytes(yx.encoded(data))
+        with patch.object(yx, 'SKILL', fake):
+            self.assert_error('DUPLICATE_AGREEMENT_VERSION', yx.catalog)
+        data['versions'][-1] = '../outside.json'; p.write_bytes(yx.encoded(data))
+        with patch.object(yx, 'SKILL', fake):
+            self.assert_error('CATALOG_PATH_INVALID', yx.catalog)
+
+    def test_tampered_generation_binding_is_not_accepted(self):
+        self.adopt()
+        state = yx.load_state(self.root)
+        state['generations']['adopt']['agreement'] = yx.reference(yx.catalog().select('yunxia-license', '0.9.2', 'original'))
+        self.write(yx.STATE, json.dumps(state))
+        self.assertIn('GENERATION_AGREEMENT_MISMATCH', {i['code'] for i in yx.verify(self.root)['issues']})
+
+    def test_inspect_only_protocol_needs_no_license_output_filename(self):
+        fake = self.catalog_copy()
+        ref = self.add_fixture_protocol(fake, kind='nda', renderer=None)
+        p = fake / 'assets/agreements/fixture/versions/1/test/manifest.json'
+        manifest = json.loads(p.read_text()); manifest.pop('output_name')
+        p.write_bytes(yx.encoded(manifest))
+        with patch.object(yx, 'SKILL', fake):
+            self.scan(); self.select(ref)
+            self.assertEqual(yx.catalog().resolve(ref)['_text'], b'Fictional test protocol only.\n')
+            self.assert_error('UNSUPPORTED_AGREEMENT_WORKFLOW', self.generate)
+
+    def test_metadata_cannot_advertise_unimplemented_generation(self):
+        fake = self.catalog_copy()
+        self.add_fixture_protocol(fake, kind='nda', renderer=None)
+        p = fake / 'assets/agreements/fixture/versions/1/test/manifest.json'
+        manifest = json.loads(p.read_text()); manifest['capabilities'].append('adopt')
+        p.write_bytes(yx.encoded(manifest))
+        with patch.object(yx, 'SKILL', fake):
+            self.assert_error('CATALOG_WORKFLOW_UNSUPPORTED', yx.catalog)
+
+    def test_nonstandard_catalog_json_is_rejected(self):
+        fake = self.catalog_copy()
+        p = fake / 'assets/agreements/catalog.json'
+        original = p.read_bytes()
+        with patch.object(yx, 'SKILL', fake):
+            data = json.loads(original); data['catalog_version'] = True
+            p.write_bytes(yx.encoded(data))
+            self.assert_error('CATALOG_FORMAT', yx.catalog)
+            data = json.loads(original); data['unexpected'] = float('nan')
+            p.write_text(json.dumps(data))
+            self.assert_error('CATALOG_FORMAT', yx.catalog)
+
+    def test_missing_required_state_fields_fail_without_traceback_or_write(self):
+        self.adopt()
+        original = yx.load_state(self.root)
+        for field in ('snapshot', 'tool_version', 'answers', 'profile', 'history', 'generations'):
+            with self.subTest(field=field):
+                state = copy.deepcopy(original); state.pop(field)
+                self.write(yx.STATE, json.dumps(state)); before = (self.root / yx.STATE).read_bytes()
+                process = self.cli('questions')
+                self.assertEqual(process.returncode, 2)
+                self.assertEqual(process.stderr, '')
+                self.assertEqual(json.loads(process.stdout)['error'], 'INVALID_STATE')
+                self.assertEqual((self.root / yx.STATE).read_bytes(), before)
+
+    def test_empty_generation_cannot_be_verified_as_complete(self):
+        self.adopt()
+        state = yx.load_state(self.root); state['generations']['adopt']['files'] = {}
+        self.write(yx.STATE, json.dumps(state))
+        self.assert_error('INVALID_STATE', yx.verify, self.root)
+
+    def test_corrupt_legacy_state_is_not_silently_migrated(self):
+        self.scan()
+        state = yx.load_state(self.root); state['state_version'] = 1; state.pop('snapshot')
+        self.write(yx.STATE, json.dumps(state)); before = (self.root / yx.STATE).read_bytes()
+        result = self.cli('migrate-state')
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stdout)['error'], 'INVALID_STATE')
+        self.assertEqual(result.stderr, '')
+        self.assertEqual((self.root / yx.STATE).read_bytes(), before)
+
+    def test_switch_cannot_archive_edited_or_missing_previous_full_text(self):
+        self.write('LICENSE', 'Existing upstream fixture\n')
+        snap = self.scan()
+        payload = self.facts()
+        payload['assets'].append({'paths': ['LICENSE'], 'disposition': 'preserve', 'origin': 'third_party',
+                                  'basis': 'fixture', 'license_files': ['LICENSE']})
+        payload['adoption'] = {'authorized': True, 'accept_draft': True, 'date': '2026-10-24', 'snapshot_id': snap['snapshot_id']}
+        self.answer(payload); self.generate('adopt')
+        old_path = self.root / 'LICENSE.yunxia-0.9.3.txt'
+        original = old_path.read_bytes()
+        entry = yx.catalog().select('yunxia-license', '0.9.2', 'original')
+        self.select(yx.reference(entry))
+        self.answer(payload)
+        before = (self.root / yx.STATE).read_bytes()
+        for content in (b'human change', None):
+            with self.subTest(content=content):
+                if content is None:
+                    old_path.unlink()
+                else:
+                    old_path.write_bytes(content)
+                self.assert_error('MANUAL_EDIT_CONFLICT', self.generate, 'adopt')
+                self.assertEqual((self.root / yx.STATE).read_bytes(), before)
+                self.assertFalse((self.root / 'LICENSE.yunxia-0.9.2.txt').exists())
+        old_path.write_bytes(original)
+        self.generate('adopt')
+        history = yx.load_state(self.root)['history']
+        old = next(h for h in history if h['event'] == 'superseded_generation')
+        archived = base64.b64decode(old['content_base64']['LICENSE.yunxia-0.9.3.txt'])
+        self.assertEqual(archived, original)
+        self.assertEqual(yx.digest(archived), old['generation']['files']['LICENSE.yunxia-0.9.3.txt'])
+
+    def test_concurrent_edit_after_planning_is_preserved(self):
+        self.adopt()
+        state_before = (self.root / yx.STATE).read_bytes()
+        real_transaction = yx.transaction
+        def race(root, updates, expected=None):
+            self.write('PROJECT-RIGHTS.md', 'concurrent human edit')
+            return real_transaction(root, updates, expected=expected)
+        with patch.object(yx, 'transaction', side_effect=race):
+            self.assert_error('CONCURRENT_EDIT', self.generate, 'adopt')
+        self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_text(), 'concurrent human edit')
+        self.assertEqual((self.root / yx.STATE).read_bytes(), state_before)
+
+    def test_directory_and_zip_reject_content_outside_prefix_consistently(self):
+        self.adopt()
+        artifact = Path(self.temp.name) / 'release'
+        for rel in ('LICENSE.txt', 'PROJECT-RIGHTS.md', 'src/main.py'):
+            p = artifact / 'package' / rel; p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes((self.root / rel).read_bytes())
+        self.assertTrue(yx.verify(self.root, artifact=artifact, prefix='package')['structure_valid'])
+        (artifact / '.yunxia').mkdir()
+        (artifact / '.yunxia/state.json').write_text('PRIVATE-FIXTURE')
+        self.assert_error('ARTIFACT_OUTSIDE_PREFIX', yx.verify, self.root, artifact=artifact, prefix='package')
+        archive = Path(self.temp.name) / 'release.zip'
+        with zipfile.ZipFile(archive, 'w') as z:
+            for p in artifact.rglob('*'):
+                if p.is_file(): z.write(p, p.relative_to(artifact).as_posix())
+        self.assert_error('ARTIFACT_OUTSIDE_PREFIX', yx.verify, self.root, artifact=archive, prefix='package')
+
+    def test_released_protocol_does_not_require_accepting_it_as_a_draft(self):
+        fake = self.catalog_copy()
+        ref = self.add_fixture_protocol(fake)
+        p = fake / 'assets/agreements/fixture/versions/1/test/manifest.json'
+        manifest = json.loads(p.read_text()); manifest['status'] = 'released'
+        p.write_bytes(yx.encoded(manifest))
+        with patch.object(yx, 'SKILL', fake):
+            snap = self.scan(); self.select(ref)
+            payload = self.facts(); payload['assets'][0]['disposition'] = 'selected'
+            payload['adoption'] = {'authorized': True, 'accept_draft': False, 'date': '2026-10-24', 'snapshot_id': snap['snapshot_id']}
+            self.answer(payload); self.generate('adopt')
+            self.assertFalse(yx.load_state(self.root)['adoption']['accept_draft'])
+            self.assertTrue(yx.verify(self.root)['structure_valid'])
+
+    def test_draft_acceptance_is_rechecked_in_saved_adoption(self):
+        self.adopt()
+        state = yx.load_state(self.root); state['adoption']['accept_draft'] = False
+        self.write(yx.STATE, json.dumps(state))
+        self.assert_error('ADOPTION_NOT_CONFIRMED', self.generate, 'adopt')
+        self.assertIn('ADOPTION_NOT_CONFIRMED', {i['code'] for i in yx.verify(self.root)['issues']})
+
+    def test_existing_corrupted_history_is_reported_without_rewriting_it(self):
+        self.adopt()
+        state = yx.load_state(self.root)
+        generation = copy.deepcopy(state['generations']['adopt'])
+        content = {p: base64.b64encode((self.root / p).read_bytes()).decode() for p in generation['files']}
+        content['LICENSE.txt'] = base64.b64encode(b'old manual change archived under wrong hash').decode()
+        state['history'].append({'event': 'superseded_generation', 'generation': generation, 'content_base64': content})
+        self.write(yx.STATE, json.dumps(state)); before = (self.root / yx.STATE).read_bytes()
+        result = yx.verify(self.root)
+        self.assertFalse(result['structure_valid'])
+        self.assertIn('HISTORICAL_CONTENT_MISMATCH', {i['code'] for i in result['issues']})
+        self.assert_error('HISTORY_INTEGRITY_ERROR', self.generate, 'adopt')
+        self.assertEqual((self.root / yx.STATE).read_bytes(), before)
+
+    def test_missing_historical_bytes_do_not_count_as_preserved_history(self):
+        self.adopt()
+        state = yx.load_state(self.root)
+        state['history'].append({'event': 'superseded_generation', 'generation': copy.deepcopy(state['generations']['adopt']), 'content_base64': {}})
+        self.write(yx.STATE, json.dumps(state))
+        self.assertIn('HISTORICAL_GENERATION_INVALID', {i['code'] for i in yx.verify(self.root)['issues']})
+
+
+if __name__ == '__main__':
+    unittest.main()

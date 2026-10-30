@@ -1,0 +1,26 @@
+{
+  "format_version": 1,
+  "agreement_id": "yunxia-license",
+  "version": "0.9.3-draft.2",
+  "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+  "display_name": "允夏许可证 / YunXia License",
+  "kind": "license",
+  "status": "imported-draft",
+  "publication": null,
+  "legacy_references": [
+    {
+      "agreement_id": "yunxia-license",
+      "version": "0.9.3",
+      "text_revision": "2026-10-24.naming-1",
+      "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936"
+    }
+  ],
+  "source": {
+    "kind": "pre-refactor-snapshot",
+    "path": "agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1"
+  },
+  "files": {
+    "notes.md": "1c2921082e4053998f427bead5062ac8c80bf82f5ae9ca57b3c837994e8d4eff",
+    "text.txt": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936"
+  }
+}

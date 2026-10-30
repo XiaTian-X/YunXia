@@ -1,0 +1,32 @@
+{
+  "format_version": 1,
+  "supported": [
+    {
+      "agreement": {
+        "agreement_id": "yunxia-license",
+        "version": "0.9.2-draft.1",
+        "sha256": "4c6f00bd5fe27674863d67a80b08a823b064251d565ac6b42528d1b936eacc57"
+      },
+      "adapter": "scope-license-v1",
+      "output_name": "LICENSE.yunxia-0.9.2.txt"
+    },
+    {
+      "agreement": {
+        "agreement_id": "yunxia-license",
+        "version": "0.9.3-draft.1",
+        "sha256": "4c38bbc1f654f0fb9e9eeef65a708ac9a52ea832d48a2af95d58b3e374c79bba"
+      },
+      "adapter": "scope-license-v1",
+      "output_name": "LICENSE.yunxia-0.9.3.txt"
+    },
+    {
+      "agreement": {
+        "agreement_id": "yunxia-license",
+        "version": "0.9.3-draft.2",
+        "sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936"
+      },
+      "adapter": "scope-license-v1",
+      "output_name": "LICENSE.yunxia-0.9.3.txt"
+    }
+  ]
+}

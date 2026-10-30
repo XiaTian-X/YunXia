@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "format_version": {
+      "const": 1
+    },
+    "agreement_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "imported-draft",
+        "candidate",
+        "released"
+      ]
+    },
+    "publication": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "legacy_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "agreement_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "text_revision": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "agreement_id",
+          "version",
+          "sha256"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "files": {
+      "type": "object",
+      "required": [
+        "text.txt"
+      ],
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "source": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "format_version",
+    "agreement_id",
+    "version",
+    "sha256",
+    "display_name",
+    "kind",
+    "status",
+    "publication",
+    "legacy_references",
+    "source",
+    "files"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "released"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "publication": {
+            "type": "object",
+            "required": [
+              "date",
+              "channel",
+              "confirmed_by",
+              "basis"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

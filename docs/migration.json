@@ -1,0 +1,717 @@
+{
+  "date": "2026-10-25",
+  "backup_name": "2026-10-25-architecture-1dfe6981",
+  "backup_manifest_sha256": "f56a2739c88b70eb48da58b5a58df05d561f6d26e5fa95b0eb06ebf0c283ef65",
+  "backup_verified": true,
+  "notes": "逐文件原件在完整备份中；consolidated表示保留有效内容而非全文改写历史结论。旧路径不再作为活动引用。三个已随安装Skill提供的文本保留为imported-draft，旧引用仍可解析。",
+  "files": [
+    {
+      "previous_path": ".gitignore",
+      "previous_sha256": "6ac7d45fdfcf3ecf27aaf250e7625ae6dc13d8a319503af3d114848c12998e1c",
+      "action": "retained-or-updated",
+      "target": ".gitignore"
+    },
+    {
+      "previous_path": "CHANGELOG.md",
+      "previous_sha256": "bb8502a4d019268bafc73080e29cf1b5ce38d9d29f0979d9b4320c80492e38cf",
+      "action": "refactored",
+      "target": "CHANGELOG.md"
+    },
+    {
+      "previous_path": "Makefile",
+      "previous_sha256": "33bbcb84d444d8c800ae5ed54a779ddc3e2f17b610b9d5106c080e0ddd8cdde8",
+      "action": "refactored",
+      "target": "Makefile"
+    },
+    {
+      "previous_path": "README.md",
+      "previous_sha256": "be520c38652ee94c4cdd34f88f08edfdfdd39ebefd0ecef6d30283017d652c02",
+      "action": "refactored",
+      "target": "README.md"
+    },
+    {
+      "previous_path": "agreements/README.md",
+      "previous_sha256": "6e34daba7771f7849002d3641eee796bfcd462e04e1f22e518255ccadf9091b4",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "agreements/catalog.json",
+      "previous_sha256": "974790c6521758395e5e743dd495a498b401c684f19da4a9bc0c73243719b9f6",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "agreements/legacy-aliases.json",
+      "previous_sha256": "b9e9890622fc9ae8a808ef7c0248a2ebfaa31d3ef11cfd7bb20f8400bce63c37",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "agreements/retention.json",
+      "previous_sha256": "c8403dbf50ec0d8f877dc5d9eeb59e78888ae3fd7ba15bf1aa578180a9b4af39",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "agreements/yunxia-license/README.md",
+      "previous_sha256": "2e1a9cfe9eaca4b38a991f667f574d81ef797b98f2db15c9aa4fadbde3d6be0f",
+      "action": "retained-or-updated",
+      "target": "agreements/yunxia-license/README.md"
+    },
+    {
+      "previous_path": "agreements/yunxia-license/agreement.json",
+      "previous_sha256": "cc169e810d1db1904645a668f0e2e8168bf10efc9edb2a1f260f72e2c89e38d6",
+      "action": "retained-or-updated",
+      "target": "agreements/yunxia-license/agreement.json"
+    },
+    {
+      "previous_path": "agreements/yunxia-license/versions/0.9.2/original/manifest.json",
+      "previous_sha256": "b1e9b7363ee21c5f8e25048bce9729113bc3a5d9954a8f142e29d0d67bf1e1d5",
+      "action": "metadata-migrated",
+      "target": "releases/yunxia-license/0.9.2-draft.1/release.json"
+    },
+    {
+      "previous_path": "agreements/yunxia-license/versions/0.9.2/original/text.txt",
+      "previous_sha256": "4c6f00bd5fe27674863d67a80b08a823b064251d565ac6b42528d1b936eacc57",
+      "action": "fixed-text-retained",
+      "target": "releases/yunxia-license/0.9.2-draft.1/text.txt"
+    },
+    {
+      "previous_path": "agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/manifest.json",
+      "previous_sha256": "b426a8d45fc9469ee9b45b019e5cca820d95f8e27d97c8aea7bd6c0fd1d8537c",
+      "action": "metadata-migrated",
+      "target": "releases/yunxia-license/0.9.3-draft.2/release.json"
+    },
+    {
+      "previous_path": "agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/text.txt",
+      "previous_sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "action": "fixed-text-retained",
+      "target": "releases/yunxia-license/0.9.3-draft.2/text.txt"
+    },
+    {
+      "previous_path": "agreements/yunxia-license/versions/0.9.3/pre-naming/manifest.json",
+      "previous_sha256": "80991128077f549b4a26a61775296c310e80742a40505e50d6f5d6130c9f066c",
+      "action": "metadata-migrated",
+      "target": "releases/yunxia-license/0.9.3-draft.1/release.json"
+    },
+    {
+      "previous_path": "agreements/yunxia-license/versions/0.9.3/pre-naming/text.txt",
+      "previous_sha256": "4c38bbc1f654f0fb9e9eeef65a708ac9a52ea832d48a2af95d58b3e374c79bba",
+      "action": "fixed-text-retained",
+      "target": "releases/yunxia-license/0.9.3-draft.1/text.txt"
+    },
+    {
+      "previous_path": "audit/catalog-review-v0.2.1.json",
+      "previous_sha256": "864501a96d20dc7b48dff20d571894533e27b16c4d94fd768cd1991890a49d9c",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/multi-agreement-v0.2.0.json",
+      "previous_sha256": "b10e529bc3426aa8f907b2e8ddf543d324e263aa5b81b12cb3cc228877d886ca",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/naming-review.json",
+      "previous_sha256": "702f6028aaf1f32b7ee3ff28773ccce64ff82e872988b6a3da8ae9cec919b17b",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/project-review.json",
+      "previous_sha256": "167b42dbfb6484d481b2e614f62da6d45b713de1352affdc04b087e3e7e5474e",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/skill-v0.1.0.json",
+      "previous_sha256": "8000f10e538065a0b290d84316963c10a22ddd60c20750e12f926b2221c511cb",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/假设示例检查.json",
+      "previous_sha256": "1646fd1441b16d4ccdc7629f3683e73ee041cfbe78b49ce302f1f5b2a933fdad",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/披露实施核对.json",
+      "previous_sha256": "be3ce11bed2ea9cf3c93ef4400ba47dc78540c1db733f8d57ef57bd8a78b9f10",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/文件核对记录.json",
+      "previous_sha256": "d58a26d7d6f345d550e2c40d69687b0991b6cd702b33a6e4a65701ac287b3900",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/空登记检查.json",
+      "previous_sha256": "faa39b6d615f6c25951e4e304c42e8f748591097969903202503d77303050c0f",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/自身登记结构检查.json",
+      "previous_sha256": "e79c0ebec7603644f11ddada3da5f728d2f34718ffd7c1c1c21929db733238e4",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "audit/自身适用核对.json",
+      "previous_sha256": "947a5d2f2e0a3b47d81a3ca36f0eea8d996d582509362bbb35c64c63c06b1460",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "changes/0.9.1-to-0.9.2.diff",
+      "previous_sha256": "efc35865c50445a634798ab1d82a4bdeb13e97bbb15648033df76fe79ebc3dcc",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "changes/0.9.2-to-0.9.3.diff",
+      "previous_sha256": "992a90bb74833687e02f6ab3252e61a5851277c09294de324d5646902901459a",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "changes/2026-10-23-配套补漏.diff",
+      "previous_sha256": "d9d7cf8fcd1baf0f0c3c860c88639d32757b96df9c6ca6712a27f78fd0793b81",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "changes/2026-10-23.2-披露配套.diff",
+      "previous_sha256": "4dd7fe9ad5f2d13dfe2688b8aaea1169a8a1bf69b86e8508a1bfb395ad2cc2f1",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "changes/2026-10-23.3-自身适用.diff",
+      "previous_sha256": "2d0d9df70a5b52fbe4e2a1e871344051500fce45ba21a6fe76e844fffd0e7538",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "changes/配套说明与模板.diff",
+      "previous_sha256": "51a7a9ddacb623270d50ea1825c89950b4f8329b12ba3fe60c1cc26923fb49f9",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "compatibility/CONTENT-PATHS.md",
+      "previous_sha256": "ea856c9e526bee5c1cf41ddefa956121a034113b862ea05fa1af8ca3a7441508",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/design.md; agreements/yunxia-license/review.md"
+    },
+    {
+      "previous_path": "compatibility/SOFTWARE-PATHS.md",
+      "previous_sha256": "2563855e28758c0be3f5edf6584e728e32d90ce8e119b69b3c407463a0b3dbd5",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/design.md; agreements/yunxia-license/review.md"
+    },
+    {
+      "previous_path": "drafts/LICENSES/LicenseRef-YunXia-0.9.3-draft.txt",
+      "previous_sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "action": "duplicate-consolidated",
+      "target": "releases/yunxia-license/0.9.3-draft.2/text.txt"
+    },
+    {
+      "previous_path": "drafts/允夏许可证-0.9.3-审阅草案.txt",
+      "previous_sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "action": "duplicate-consolidated",
+      "target": "releases/yunxia-license/0.9.3-draft.2/text.txt"
+    },
+    {
+      "previous_path": "examples/README.md",
+      "previous_sha256": "7b73198e54c50db13470d312e2ca9722389ae63a49fe29de9d269eb0e1257bf2",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "examples/disclosure-record.example.json",
+      "previous_sha256": "4e0961c852cb42f9271f96f4f8102d9fb02fe1ff862cc484ef9e17bd9fa9f98a",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "history/YunXia-0.9.3-pre-rename.zip",
+      "previous_sha256": "a3abc93c410f9fafddc5cd05a70d9889c4c568d87443be978b0ce990e3893242",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "history/中文智能体宽松许可证-0.9.2-审阅草案.txt",
+      "previous_sha256": "4c6f00bd5fe27674863d67a80b08a823b064251d565ac6b42528d1b936eacc57",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "history/中文智能体宽松许可证-0.9.2-混合许可与兼容路径修订包.zip",
+      "previous_sha256": "265d60cc1ea60748afd4cd6058a3aef809f63df9adf91e7ce5fac07b4ca14a90",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "history/中文智能体宽松许可证-0.9.2-混合许可与兼容路径审查报告-2026-10-19.md",
+      "previous_sha256": "81f156cf38dfdf579a36c0054a809065c536d628c0361fb90a2eebbffcd36b9e",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "history/中文智能体宽松许可证-0.9.3-全面补漏审查包.zip",
+      "previous_sha256": "60c7a2dbe5a07d5b6291f85544e5df91599e5c9c4cd7041058313791a991bad0",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "history/中文智能体宽松许可证-0.9.3-审阅草案.txt",
+      "previous_sha256": "4c38bbc1f654f0fb9e9eeef65a708ac9a52ea832d48a2af95d58b3e374c79bba",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "history/中文智能体宽松许可证-0.9.3-逻辑自洽修订包.zip",
+      "previous_sha256": "57c427af88b3b49d48261411d457b736097268792cfe1e41355fec07070098e6",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "history/中文智能体宽松许可证-0.9.3-逻辑自洽审查报告-2026-10-19.md",
+      "previous_sha256": "e6379960bcb675d3a211ea6da909c0261a8ba2d45291f7417b1e77e07ec066c8",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "records/FORMAT.md",
+      "previous_sha256": "762369a41176c587707569bfab09b1b4d5ef2ed72d38b6c8742ce13b7b686f0d",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "release/adoption-state.json",
+      "previous_sha256": "2cd84f176ed19ded7c3f121dd81ffc66a43cec1d8689db47c05757f29ffec657",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "release/采用说明.md",
+      "previous_sha256": "22b20358d18643f5a6bc7cbea3c3f818f25f919ce0c619b8e5b60b42e167518c",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "research/全面补漏审查报告.md",
+      "previous_sha256": "464936b946c7e63623c4202a91f9fa98e5cb05b2104196b0304e2c544c1d7af0",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/design.md; agreements/yunxia-license/review.md"
+    },
+    {
+      "previous_path": "research/披露声明调研与补足规划.docx",
+      "previous_sha256": "c74f33c25770dbbe8eb67f9e6a578247d412a38938020c6031d96bcb1fc7b3ef",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/design.md; agreements/yunxia-license/review.md"
+    },
+    {
+      "previous_path": "research/披露实施审查.md",
+      "previous_sha256": "cee418d6bb4d19481e90cbc647c0df95e641864ec9662ab62977dc7adaaac229",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/design.md; agreements/yunxia-license/review.md"
+    },
+    {
+      "previous_path": "research/披露实施来源.md",
+      "previous_sha256": "2ca35bd25cddc62f394978b629aafd48b04fe6753266c1f8f4d24e5d7a3c12e1",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/design.md; agreements/yunxia-license/review.md"
+    },
+    {
+      "previous_path": "research/自身适用与递归闭环审查.md",
+      "previous_sha256": "0310ffa09a2567f0869450beb09dbeef9c4e4cdc78cec40ba5965c2df780cfea",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/design.md; agreements/yunxia-license/review.md"
+    },
+    {
+      "previous_path": "research/逻辑自洽审查报告.md",
+      "previous_sha256": "e6379960bcb675d3a211ea6da909c0261a8ba2d45291f7417b1e77e07ec066c8",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/design.md; agreements/yunxia-license/review.md"
+    },
+    {
+      "previous_path": "schemas/asset-register.schema.json",
+      "previous_sha256": "550f4cdca3b62663f8575dd40adb6b729dcb5f42943397d4a32538ca3dfc4e57",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "self-application/AI-USAGE.md",
+      "previous_sha256": "c1703747026f5f970c8bb75d9d8c0d9c0c2f8ec30f524ae4ca35e0ae02e5399a",
+      "action": "facts-retained",
+      "target": "docs/provenance.json; docs/project-rights.md"
+    },
+    {
+      "previous_path": "self-application/LICENSE-0.9.3.txt",
+      "previous_sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "action": "duplicate-consolidated",
+      "target": "releases/yunxia-license/0.9.3-draft.2/text.txt"
+    },
+    {
+      "previous_path": "self-application/PROJECT-RIGHTS-DRAFT.md",
+      "previous_sha256": "8095417fb33d4890a20161f5dad3ffadda7f1568a595e05181962e44dc02e9bc",
+      "action": "facts-retained",
+      "target": "docs/provenance.json; docs/project-rights.md"
+    },
+    {
+      "previous_path": "self-application/README.md",
+      "previous_sha256": "9584a33dafa92163e809a8f549bd4e9bc25f75b3abe6d25d995a84153e5fa337",
+      "action": "facts-retained",
+      "target": "docs/provenance.json; docs/project-rights.md"
+    },
+    {
+      "previous_path": "self-application/THIRD-PARTY.md",
+      "previous_sha256": "01e2d36dc9cce402a98b2ab567c5e2e8572a844d40bec2b34cbcb4e92e722a5e",
+      "action": "facts-retained",
+      "target": "docs/provenance.json; docs/project-rights.md"
+    },
+    {
+      "previous_path": "self-application/asset-register.json",
+      "previous_sha256": "ff01f672eb8025d7aef82cb086ae7a2e9536527d8ec86dcf0a18b9aea3e8d394",
+      "action": "facts-retained",
+      "target": "docs/provenance.json; docs/project-rights.md"
+    },
+    {
+      "previous_path": "self-application/evidence.json",
+      "previous_sha256": "877ac0ddae39e2b39f1adb3c5bf3d16de42ce3fbffa92cb0e02653f944555f53",
+      "action": "facts-retained",
+      "target": "docs/provenance.json; docs/project-rights.md"
+    },
+    {
+      "previous_path": "self-application/license-map.json",
+      "previous_sha256": "5ea626e6605b5454fe7f212290747d84147e9160e39baafaecc6ac6769b5089a",
+      "action": "facts-retained",
+      "target": "docs/provenance.json; docs/project-rights.md"
+    },
+    {
+      "previous_path": "shared/README.md",
+      "previous_sha256": "2b99089b52dc150dbc378ba7d8fe19979f0bdce9da9740ea7dd109db278d3043",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "shared/schemas/asset-register-2.0.0.schema.json",
+      "previous_sha256": "457422ad8d71ca3102bb7daf0548dc2ed9f9cb19c792df06a160aaf187d7aebc",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "shared/templates/asset-register.json",
+      "previous_sha256": "5d147657fd0d8ba4a4931b57688d5ed06bceecfd8c3376ac5d6785d55dbbb0b5",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "simulation/cases.json",
+      "previous_sha256": "a537cec007de63cb137926abc0b9daa801586ce9ff3ed13b71eab34c1bd1c6a9",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/coherence-cases.json",
+      "previous_sha256": "11636b2cf59059950676e91789633df9fa66ad9d92a2aaa7d687aed515fa7a16",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/disclosure-cases.json",
+      "previous_sha256": "6414a7ac27ead8a6b0b0280c040bde59eb662a04148cbb9027680c49b729dbea",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/omissions-cases.json",
+      "previous_sha256": "66523a2a8617ea334dfc9cf0133557d659347fa4fb8a8ef31f9922deb2aaf50e",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/self-application-cases.json",
+      "previous_sha256": "aaf728850df05bc4c77373356f0fd8abc48c66aeadaabbaeb2bea059bccd714a",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/场景模拟.md",
+      "previous_sha256": "59ff6f37995d56509a5d33e9b2704b9c7e4beb4c16372a5542f55b135212073a",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/披露场景.md",
+      "previous_sha256": "82b660eb97df362c5d4fd2e335037858147f7de152686fb1e8a1f292c71f5086",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/自身适用场景.md",
+      "previous_sha256": "d67a6f2d23389d2965f85cf37d2750f155b0e7a1bdc6f1f9a1e1e8e241019957",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/补漏场景.md",
+      "previous_sha256": "d6097daa74cd28aefbefa1e410fe2457f4316317e084b9a58c5fd487ab678cd3",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "simulation/逻辑复审补充场景.md",
+      "previous_sha256": "5b8be3dcfb7d80a67553e71edff6afe6ef0273a5e9c57477b149f51ce3bf5890",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/cases.json"
+    },
+    {
+      "previous_path": "skills/yunxia/SKILL.md",
+      "previous_sha256": "39af8088bf4ecc4b7652e5687abcd890eabff878bb8ae13f2f5f3b2d34b407b8",
+      "action": "refactored",
+      "target": "skills/yunxia/SKILL.md"
+    },
+    {
+      "previous_path": "skills/yunxia/agents/openai.yaml",
+      "previous_sha256": "2554902368d46cac23e13eacad2c50fc975c7374267dcdc1f4b10dc9e5b0e67c",
+      "action": "retained-or-updated",
+      "target": "skills/yunxia/agents/openai.yaml"
+    },
+    {
+      "previous_path": "skills/yunxia/assets/LICENSE-0.9.3.txt",
+      "previous_sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "action": "duplicate-consolidated",
+      "target": "releases/yunxia-license/0.9.3-draft.2/text.txt"
+    },
+    {
+      "previous_path": "skills/yunxia/assets/agreements/catalog.json",
+      "previous_sha256": "974790c6521758395e5e743dd495a498b401c684f19da4a9bc0c73243719b9f6",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "skills/yunxia/assets/agreements/yunxia-license/agreement.json",
+      "previous_sha256": "cc169e810d1db1904645a668f0e2e8168bf10efc9edb2a1f260f72e2c89e38d6",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.2/original/manifest.json",
+      "previous_sha256": "b1e9b7363ee21c5f8e25048bce9729113bc3a5d9954a8f142e29d0d67bf1e1d5",
+      "action": "metadata-migrated",
+      "target": "releases/yunxia-license/0.9.2-draft.1/release.json"
+    },
+    {
+      "previous_path": "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.2/original/text.txt",
+      "previous_sha256": "4c6f00bd5fe27674863d67a80b08a823b064251d565ac6b42528d1b936eacc57",
+      "action": "fixed-text-retained",
+      "target": "releases/yunxia-license/0.9.2-draft.1/text.txt"
+    },
+    {
+      "previous_path": "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/manifest.json",
+      "previous_sha256": "b426a8d45fc9469ee9b45b019e5cca820d95f8e27d97c8aea7bd6c0fd1d8537c",
+      "action": "metadata-migrated",
+      "target": "releases/yunxia-license/0.9.3-draft.2/release.json"
+    },
+    {
+      "previous_path": "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.3/2026-10-24.naming-1/text.txt",
+      "previous_sha256": "1d29032215369e616aaf3e8cb10541a4774346870cbc4fe3ff4711e3eba91936",
+      "action": "fixed-text-retained",
+      "target": "releases/yunxia-license/0.9.3-draft.2/text.txt"
+    },
+    {
+      "previous_path": "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.3/pre-naming/manifest.json",
+      "previous_sha256": "80991128077f549b4a26a61775296c310e80742a40505e50d6f5d6130c9f066c",
+      "action": "metadata-migrated",
+      "target": "releases/yunxia-license/0.9.3-draft.1/release.json"
+    },
+    {
+      "previous_path": "skills/yunxia/assets/agreements/yunxia-license/versions/0.9.3/pre-naming/text.txt",
+      "previous_sha256": "4c38bbc1f654f0fb9e9eeef65a708ac9a52ea832d48a2af95d58b3e374c79bba",
+      "action": "fixed-text-retained",
+      "target": "releases/yunxia-license/0.9.3-draft.1/text.txt"
+    },
+    {
+      "previous_path": "skills/yunxia/assets/provenance.json",
+      "previous_sha256": "8828a4ae8b1349b866b65401764b6eacbd0a3cc9e60085ad9cb9a4a6242dd8a7",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "skills/yunxia/references/state-migration.md",
+      "previous_sha256": "2e9618da8f1037addc2103ee04ddc9c4f1fb2958a0c169928685ec74b531b6be",
+      "action": "retained-or-updated",
+      "target": "skills/yunxia/references/state-migration.md"
+    },
+    {
+      "previous_path": "skills/yunxia/references/workflow.md",
+      "previous_sha256": "7664bfce8f7f9536962b4aaeab3118760a337c21b004cc580458071e6dc50291",
+      "action": "retained-or-updated",
+      "target": "skills/yunxia/references/workflow.md"
+    },
+    {
+      "previous_path": "skills/yunxia/scripts/agreement_catalog.py",
+      "previous_sha256": "f12d8555b9384e75a044cf4a681f694a2bbc40585e59d921d1062432554162ef",
+      "action": "refactored",
+      "target": "tooling/src/yunxia/catalog/legacy.py"
+    },
+    {
+      "previous_path": "skills/yunxia/scripts/yunxia.py",
+      "previous_sha256": "429e8a471df874f099fcbac33f02eae80b3e011a4ddbe485db7530932855e61a",
+      "action": "refactored",
+      "target": "tooling/src/yunxia/project/workflow.py"
+    },
+    {
+      "previous_path": "templates/AGENT-DELIVERY.md",
+      "previous_sha256": "b2c00655ddfdbcfaf3e18a1a0cec7dbc259ea23a4b49eba5f6ac3ebe63e4e699",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/AI-USAGE.md",
+      "previous_sha256": "b7083b0b18e660afe86c3c51ca41aeed707bfbbc39d6af2aa719312f3cd1d1dc",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/COMPATIBILITY-RECORD.md",
+      "previous_sha256": "0bd9fae42c150e7d6edf4f7517538fb6f3bd1e47624e059a6a10956a4a845809",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/CONTRIBUTION-AUTHORIZATION.md",
+      "previous_sha256": "52df3a72d27d080eb5eceed97a08d7f42d2aed10d70e6d12108b9bd731da7ea9",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/DISCLOSURE-GUIDE.md",
+      "previous_sha256": "af9cd1af3fee4f00f4edc7ba3da92efef31d0eec3c6abdc1bb79001370037735",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/KNOWLEDGE-LICENSE.md",
+      "previous_sha256": "1fbf11bd17368322845f042d0772f3a77f0403b8a535e5f1f8f355f86aa0fa04",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/LICENSE-MIGRATION.md",
+      "previous_sha256": "e6d7e04d2b731e04fc6766027c03423f904faed478af927ae29aaf0c27357e43",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/LICENSE-OPTIONS.md",
+      "previous_sha256": "7bd68ea71e6a83efa377e545a5789c87a116e936e0b2baccedea1bde878cce97",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/PROJECT-RIGHTS.md",
+      "previous_sha256": "479ab35d2c2ecfd1692eaebbfe022d57529f2585f8fb032f21e77397ecde41d3",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "templates/asset-register.json",
+      "previous_sha256": "019348d7436b1037baecd88d2e1a97bfd757610d54ed5273f7c7c1b0917219a0",
+      "action": "consolidated",
+      "target": "agreements/yunxia-license/adoption.md; agreements/yunxia-license/templates/"
+    },
+    {
+      "previous_path": "tests/test_agreement_tools.py",
+      "previous_sha256": "af170f85c0a09824d755566f7e80d9932afad649a24f1c950499650c6b6ef229",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "tests/test_disclosure.py",
+      "previous_sha256": "88071893e692d77a20ea61eea599333f5e2d4e61933b287165ebb81bdb75733f",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "tests/test_record_versions.py",
+      "previous_sha256": "7c290859e196f5cc3d5ab73214df31472550e0a720085df984c2cdbf15f4ebfc",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "tests/test_self_application.py",
+      "previous_sha256": "800e74501ba9b5bd301f303ebb001de5f7e9f4980c5df0eac9a1fa5fe8a3c0fc",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "tests/test_yunxia_skill.py",
+      "previous_sha256": "540deac5f67cc040afb317c32763c937642f53e47c47c1873b66d8759202ee6a",
+      "action": "migration-or-regression-retained",
+      "target": "tooling/"
+    },
+    {
+      "previous_path": "tools/README.md",
+      "previous_sha256": "14f392856d6d221e9b575ea9999bfbca625cbd39b9e49c21d79374733535d285",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "tools/check_disclosure.py",
+      "previous_sha256": "d5e3acb363158931f488098873dff240c375048d253cfbf2f64f8f972a96ca6e",
+      "action": "refactored",
+      "target": "tooling/check_disclosure.py"
+    },
+    {
+      "previous_path": "tools/check_project.py",
+      "previous_sha256": "d09f462ea4b276c5fd97783e300df53983914771dccb934439243addf3455661",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "tools/check_self_application.py",
+      "previous_sha256": "1ccfe6247cf0bd44dad6f2312c52c4aa277c501e1816325e21183b2918250aaa",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "tools/manage_agreements.py",
+      "previous_sha256": "787fd44981f5e2e5b3fe59034fa3055dfa4e448e6850dfe544303511a14b38f2",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "tools/register_project_files.py",
+      "previous_sha256": "dc202aefb5ef86aa36cef8c6c68474ffb94f34dc86d0c2a0361795de043130b6",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "tools/requirements-dev.txt",
+      "previous_sha256": "6b193ed79ce812f82e1f6fcc87618ef40a9e3b393b82525d47a305602cd028da",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "tools/requirements.txt",
+      "previous_sha256": "4046ca1e3a64f4ea791fb4fb3d8566242086ff1c8e2431e2c349e1052ffc6ba0",
+      "action": "archived-outside-repository",
+      "target": null
+    },
+    {
+      "previous_path": "SHA256SUMS",
+      "previous_sha256": "fcf9f641fc149a76d298a773d7820835e8f41eb4dbe9fcd7623c7711822468cc",
+      "action": "archived-outside-repository",
+      "target": null
+    }
+  ]
+}
