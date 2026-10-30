@@ -1,6 +1,4 @@
 """Read-only repository validation; expected hashes are never refreshed here."""
-from pathlib import Path
-import json
 import re
 import subprocess
 import sys

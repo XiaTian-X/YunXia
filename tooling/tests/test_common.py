@@ -3,14 +3,45 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'tooling/src'))
-from yunxia.common import CatalogError, json_bytes, canonical_sha256, read_json, safe_path
+from yunxia.common import CatalogError, json_bytes, canonical_sha256, read_json, safe_path, atomic_write
 from yunxia.catalog import Catalog
+from yunxia.project import workflow
 
 
 class SharedDataChecks(unittest.TestCase):
+    def test_atomic_replace_failure_preserves_original_and_cleans_temporary_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/'record.json'
+            path.write_bytes(b'original')
+            with patch('yunxia.common.os.replace', side_effect=OSError('interrupted')), self.assertRaises(OSError):
+                atomic_write(path, b'new')
+            self.assertEqual(path.read_bytes(), b'original')
+            self.assertEqual(list(Path(temp).iterdir()), [path])
+
+    def test_atomic_write_keeps_private_and_public_permissions_distinct(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/'nested/record.json'
+            for mode in (0o600, 0o644):
+                atomic_write(path, b'record', mode=mode)
+                self.assertEqual(path.stat().st_mode & 0o777, mode)
+                self.assertEqual(path.read_bytes(), b'record')
+
+    def test_strict_json_preserves_each_interfaces_error_codes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/'input.json'
+            for raw, code in ((b'{"x":1,"x":2}', 'DUPLICATE_JSON_KEY'),
+                              (b'{"x":NaN}', 'INVALID_JSON'), (b'\xff', 'INVALID_JSON')):
+                path.write_bytes(raw)
+                with self.assertRaises(CatalogError) as cm: read_json(path)
+                self.assertEqual(cm.exception.code, 'CATALOG_FORMAT')
+                with self.assertRaises(workflow.WorkflowError) as cm: workflow.read_json(path)
+                self.assertEqual(cm.exception.code, code)
+                self.assertEqual(path.read_bytes(), raw)
+
     def test_json_hash_is_stable_for_equivalent_key_order(self):
         first = {'中文': '允夏', 'fields': {'b': 2, 'a': 1}}
         second = {'fields': {'a': 1, 'b': 2}, '中文': '允夏'}

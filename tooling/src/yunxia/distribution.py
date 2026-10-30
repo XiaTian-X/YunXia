@@ -1,11 +1,10 @@
 """Reproducible standalone Skill builds and recoverable local installation."""
 from pathlib import Path
-import os
 import shutil
 import tempfile
 import re
 from .catalog import Catalog
-from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded
+from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded, canonical_sha256
 from . import VERSION
 
 
@@ -16,7 +15,7 @@ def source_signature(root):
             if '__pycache__' in p.parts or p.name=='.DS_Store' or p.suffix in ('.pyc','.pyo'):continue
             if p.is_symlink():raise CatalogError('DISTRIBUTION_SYMLINK',[str(p)])
             if p.is_file():paths.add(p.relative_to(root).as_posix())
-    return sha256(encoded({p:sha256(safe_path(root,p).read_bytes()) for p in sorted(paths)}))
+    return canonical_sha256({p:sha256(safe_path(root,p).read_bytes()) for p in sorted(paths)})
 
 
 def inventory(root):

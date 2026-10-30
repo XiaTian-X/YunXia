@@ -448,6 +448,20 @@ class YunXiaWorkflow(unittest.TestCase):
         result = self.scan()
         self.assertEqual(result['coverage_issues'][0]['reason'], 'invalid_dependency_manifest')
 
+    def test_unreadable_dependency_text_reports_coverage_without_echoing_contents(self):
+        path = self.root / 'package.json'
+        for raw in (b'\xff\xfePRIVATE-CONTENT', b'\0PRIVATE-CONTENT', b'PRIVATE-CONTENT' * 4):
+            with self.subTest(raw=raw), patch.object(yx, 'MAX_TEXT', 32):
+                path.write_bytes(raw)
+                result = yx.scan(self.root, persist=False)
+                self.assertEqual(result['coverage_issues'], [
+                    {'path': 'package.json', 'reason': 'manifest_text_not_parsed'}])
+                self.assertEqual(result['dependency_hints'], [])
+                self.assertEqual(result['files']['package.json']['sha256'], yx.digest(raw))
+                self.assertNotIn('PRIVATE-CONTENT', json.dumps(result))
+                self.assertEqual(path.read_bytes(), raw)
+        self.assertFalse((self.root / '.yunxia').exists())
+
     def test_private_directory_is_not_allowed_in_artifact_prefix(self):
         self.adopt()
         dest = Path(self.temp.name) / 'artifact'

@@ -11,12 +11,12 @@ from pathlib import Path, PurePosixPath
 import re
 import stat
 import sys
-import tempfile
 import tomllib
 import zipfile
 
 from ..catalog import Catalog, reference, validate_reference, default_root
 from ..common import CatalogError, sha256 as digest, json_bytes as encoded, canonical_sha256 as fingerprint
+from ..common import DuplicateJSONKey, parse_json, valid_relative_path, atomic_write
 from .. import VERSION
 
 STATE_VERSION = 3
@@ -47,32 +47,17 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
 
-def unique(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise WorkflowError('DUPLICATE_JSON_KEY')
-        result[key] = value
-    return result
-
-
 def read_json(path):
     try:
-        return json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=unique,
-                          parse_constant=lambda _: fail('INVALID_JSON'))
+        return parse_json(path.read_text(encoding='utf-8'))
+    except DuplicateJSONKey:
+        raise WorkflowError('DUPLICATE_JSON_KEY') from None
     except (ValueError, OSError):
         raise WorkflowError('INVALID_JSON') from None
 
 
-def fail(code):
-    raise WorkflowError(code)
-
-
 def relative(value):
-    if not isinstance(value, str) or not value or '\\' in value or any(ord(c) < 32 for c in value):
-        raise WorkflowError('UNSAFE_PATH')
-    p = PurePosixPath(value)
-    if p.is_absolute() or '..' in p.parts or p.as_posix() != value or value == '.':
+    if not valid_relative_path(value):
         raise WorkflowError('UNSAFE_PATH')
     return value
 
@@ -99,18 +84,7 @@ def current_bytes(root, rel):
 
 
 def atomic(path, content, private=False):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, name = tempfile.mkstemp(prefix='.yunxia-write-', dir=path.parent)
-    try:
-        with os.fdopen(fd, 'wb') as stream:
-            os.fchmod(stream.fileno(), 0o600 if private else 0o644)
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(name, path)
-    finally:
-        if os.path.exists(name):
-            os.unlink(name)
+    atomic_write(path, content, mode=0o600 if private else 0o644)
 
 
 def private_dir(root):
@@ -445,7 +419,7 @@ def dependency_hints(rel, content):
     hints, errors = [], []
     try:
         if name in ('package.json', 'package-lock.json'):
-            obj = json.loads(content, object_pairs_hook=unique)
+            obj = parse_json(content)
             if not isinstance(obj, dict):
                 raise ValueError()
             groups = ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies')
@@ -545,6 +519,7 @@ def scan_tree(root, state):
             relative(rel)
             data = p.read_bytes()
             item = {'sha256': digest(data), 'size': len(data), 'kind': kind(p), 'observations': []}
+            content = None
             if len(data) <= MAX_TEXT and b'\0' not in data:
                 try:
                     content = data.decode('utf-8')
@@ -561,7 +536,7 @@ def scan_tree(root, state):
                         hints, errors = dependency_hints(rel, content)
                         dependencies.extend(hints)
                         coverage.extend(errors)
-            if item['kind'] == 'dependency-manifest' and (len(data) > MAX_TEXT or b'\0' in data):
+            if item['kind'] == 'dependency-manifest' and content is None:
                 coverage.append({'path': rel, 'reason': 'manifest_text_not_parsed'})
             if item['kind'] == 'opaque-container':
                 coverage.append({'path': rel, 'reason': 'container_contents_not_inspected'})

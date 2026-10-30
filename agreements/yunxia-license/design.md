@@ -86,7 +86,7 @@
 | A9 | [SPDX Specification 2.3.1，规范性附录 D](https://spdx.github.io/spdx-spec/v2.3.1/SPDX-license-expressions/)，D.1、D.3、D.4.2—D.4.3 | 自定义引用和 OR／AND 表达式；仅引用该确切版规范，不宣称其为最新版本 |
 | A10 | [MIT License 全文，Open Source Initiative](https://opensource.org/license/mit) | 对照宽松授权及通知保留结构，不将其文本当作本稿认可或实际项目证据 |
 
-技术措施比较另见 `compatibility/CONTENT-PATHS.md` 的本轮补充 [A4][A5][A8]；表达式实施见 `release/采用说明.md` [A9]。引用法律和许可原文不代表实际当事人已符合其条件。
+技术措施比较另见[内容类许可的混合使用路径](review.md#content-paths)的本轮补充 [A4][A5][A8]；表达式实施见[采用说明](adoption.md#adoption-overview) [A9]。引用法律和许可原文不代表实际当事人已符合其条件。
 
 ## 来源：research/自身适用与递归闭环审查.md
 

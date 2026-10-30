@@ -116,7 +116,7 @@ class Catalog:
             raise CatalogError('UNSUPPORTED_CATALOG_FORMAT')
         if not self.root.is_dir() or self.root.is_symlink():
             raise CatalogError('CATALOG_PATH_INVALID')
-        identities = set()
+        identities, bases = set(), []
         registry_path = safe_path(self.root, 'tooling/src/yunxia/adapters/support.json')
         bundled_registry = self.root.parent.parent / 'scripts/yunxia/adapters/support.json'
         if registry_path.exists():
@@ -202,6 +202,8 @@ class Catalog:
                     raise CatalogError('RELEASE_REVIEW_INVALID',[rel])
                 if m['status']=='released' and ref['version']!=source['target_version']:
                     raise CatalogError('RELEASE_REVIEW_INVALID',[rel])
+                if source_agreement.get('base') is not None:
+                    bases.append((source_agreement['base'], rel))
             self.paths.add(rel)
             match = next((x for x in registry if x['agreement'] == ref), None)
             if match and m['kind'] != 'license':
@@ -221,6 +223,12 @@ class Catalog:
             if not isinstance(meta, dict) or not {'agreement_id','name','kind','recommended'} <= meta.keys() or meta.get('agreement_id') != p.parent.name or not all(isinstance(meta.get(k),str) and meta[k].strip() for k in ('name','kind')):
                 raise CatalogError('AGREEMENT_FORMAT', [rel])
             agreement_ids.add(meta['agreement_id'])
+            base = meta.get('base')
+            if base is not None:
+                validate_reference(base)
+                if base['agreement_id'] != meta['agreement_id']:
+                    raise CatalogError('AGREEMENT_REFERENCE_MISMATCH', [rel])
+                bases.append((base, rel))
             recommendation = meta.get('recommended')
             if recommendation is not None:
                 validate_reference(recommendation)
@@ -234,6 +242,13 @@ class Catalog:
             self.paths.add(rel)
         if any(e['agreement_id'] not in agreement_ids for e in self.entries):
             raise CatalogError('RELEASE_AGREEMENT_NOT_REGISTERED')
+        # Resolve after loading every fixed version so historical chains and
+        # forward directory ordering receive the same exact-reference checks.
+        for base, rel in bases:
+            try:
+                self.resolve(base)
+            except CatalogError as error:
+                raise CatalogError(error.code, [rel]) from None
         for supported in registry:
             self.resolve(supported['agreement'])
 

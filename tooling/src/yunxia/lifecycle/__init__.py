@@ -6,18 +6,11 @@ import os
 import shutil
 import tempfile
 from ..catalog import Catalog, reference, validate_reference, validate_review_record
-from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded
+from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded, atomic_write, canonical_sha256
 
 
 def write(path, content):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp = tempfile.mkstemp(prefix='.yunxia-', dir=path.parent)
-    try:
-        with os.fdopen(fd, 'wb') as stream:
-            stream.write(content); stream.flush(); os.fsync(stream.fileno())
-        os.replace(temp, path)
-    finally:
-        if os.path.exists(temp): os.unlink(temp)
+    atomic_write(path, content)
 
 
 @contextmanager
@@ -79,6 +72,8 @@ def metadata(root, aid):
 
 def source_snapshot(root, aid):
     m = metadata(root, aid)
+    if m['base'] is not None:
+        Catalog(root).resolve(m['base'])
     p = folder(root, aid)
     files = {}
     names = ['text.txt', 'README.md', 'design.md', 'review.md', 'adoption.md']
@@ -130,7 +125,7 @@ def review(root, aid, decision):
     snapshot = source_snapshot(root, aid)
     if not isinstance(decision, dict) or set(decision) != {'source_sha256','reviewer','date','decision','basis','open_issues'}:
         raise CatalogError('REVIEW_FORMAT')
-    if decision['source_sha256'] != sha256(encoded(snapshot)):
+    if decision['source_sha256'] != canonical_sha256(snapshot):
         raise CatalogError('REVIEW_SOURCE_CHANGED')
     if not all(isinstance(decision[k], str) and decision[k].strip() for k in ('reviewer','basis','date')) or decision['decision'] not in ('approved','changes-required') or not isinstance(decision['open_issues'], list) or not all(isinstance(x, str) and x.strip() for x in decision['open_issues']):
         raise CatalogError('REVIEW_FORMAT')
@@ -145,7 +140,7 @@ def review(root, aid, decision):
 
 def inspect(root, aid):
     m = metadata(root, aid); snapshot = source_snapshot(root, aid)
-    digest = sha256(encoded(snapshot))
+    digest = canonical_sha256(snapshot)
     r = m.get('review')
     approved = isinstance(r, dict) and r.get('decision') == 'approved' and not r.get('open_issues') and r.get('source_sha256') == digest
     return {'agreement':m,'source_snapshot':snapshot,'source_sha256':digest,'review_current_and_approved':approved}
@@ -228,7 +223,7 @@ def publish(root, aid, candidate, version, destination, decision):
     if not isinstance(decision, dict) or set(decision) != {'date','confirmed_by','basis','candidate_sha256'} or not all(isinstance(x,str) and x.strip() for x in decision.values()):
         raise CatalogError('PUBLICATION_DECISION_REQUIRED')
     source_dir = safe_path(root, f'releases/{aid}/{candidate}')
-    package_sha = sha256(encoded({p.name:sha256(p.read_bytes()) for p in sorted(source_dir.iterdir()) if p.is_file()}))
+    package_sha = canonical_sha256({p.name:sha256(p.read_bytes()) for p in sorted(source_dir.iterdir()) if p.is_file()})
     if decision['candidate_sha256'] != package_sha: raise CatalogError('PUBLICATION_CANDIDATE_CHANGED')
     date.fromisoformat(decision['date'])
     if version != entry['source']['target_version']: raise CatalogError('PUBLICATION_VERSION_MISMATCH')

@@ -1,8 +1,10 @@
 """Shared data and filesystem primitives; independent of catalog layouts."""
 import hashlib
 import json
+import os
 from pathlib import PurePosixPath
 import re
+import tempfile
 
 
 class CatalogError(Exception):
@@ -45,20 +47,44 @@ def safe_path(root, rel):
     return target
 
 
-def read_json(path):
+class DuplicateJSONKey(ValueError):
+    pass
+
+
+def parse_json(content):
+    """Strict JSON parsing, with errors translated by each caller's interface."""
     def unique(pairs):
         result = {}
         for key, value in pairs:
             if key in result:
-                raise CatalogError('CATALOG_FORMAT')
+                raise DuplicateJSONKey('Duplicate JSON key')
             result[key] = value
         return result
 
     def invalid_constant(_):
-        raise CatalogError('CATALOG_FORMAT')
+        raise ValueError('Non-finite JSON number')
 
+    return json.loads(content, object_pairs_hook=unique, parse_constant=invalid_constant)
+
+
+def read_json(path):
     try:
-        return json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=unique,
-                          parse_constant=invalid_constant)
+        return parse_json(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         raise CatalogError('CATALOG_FORMAT') from None
+
+
+def atomic_write(path, content, mode=0o600):
+    """Replace a file only after its complete contents have reached the filesystem."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(prefix='.yunxia-write-', dir=path.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            os.fchmod(stream.fileno(), mode)
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)

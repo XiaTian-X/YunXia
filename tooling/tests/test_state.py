@@ -59,5 +59,17 @@ class CurrentState(unittest.TestCase):
         self.assertTrue(validator.is_valid(ref))
         self.assertFalse(validator.is_valid(dict(ref,text_revision='unexpected')))
 
+    def test_metadata_reference_fields_share_the_exact_reference_contract(self):
+        from jsonschema import Draft202012Validator
+        schema=json.loads((ROOT/'tooling/schemas/agreement.schema.json').read_text())
+        validator=Draft202012Validator(schema)
+        metadata=json.loads((ROOT/'agreements/yunxia-license/agreement.json').read_text())
+        ref=reference(Catalog(ROOT).entries[0])
+        for key in ('base','recommended'):
+            for value in (None,ref):
+                self.assertTrue(validator.is_valid(dict(metadata,**{key:value})))
+            for value in (dict(ref,extra=True),dict(ref,sha256='bad'),{'agreement_id':ref['agreement_id']}):
+                self.assertFalse(validator.is_valid(dict(metadata,**{key:value})))
+
 
 if __name__=='__main__':unittest.main()

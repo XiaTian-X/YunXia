@@ -219,6 +219,50 @@ class Lifecycle(unittest.TestCase):
         snapshot=life.inspect(self.root,'fixture')['source_snapshot']
         self.assertEqual(snapshot['agreement']['base'],reference(Catalog(self.root).select('fixture','1.0.0')))
 
+    def test_working_revision_base_must_exist_and_match_fixed_bytes(self):
+        self.publish();life.revise(self.root,'fixture','1.0.0','2.0.0')
+        path=self.root/'agreements/fixture/agreement.json'
+        original=path.read_bytes()
+        for field,value,code in [('version','missing','AGREEMENT_NOT_AVAILABLE'),
+                                 ('sha256','0'*64,'AGREEMENT_PIN_MISMATCH')]:
+            metadata=json.loads(original);metadata['base'][field]=value
+            path.write_bytes(life.encoded(metadata))
+            self.error(code,Catalog,self.root)
+            self.error(code,life.inspect,self.root,'fixture')
+            self.assertEqual(path.read_bytes(),life.encoded(metadata))
+        path.write_bytes(original)
+        self.assertEqual(Catalog(self.root).resolve(life.metadata(self.root,'fixture')['base'])['version'],'1.0.0')
+
+    def test_historical_revision_chain_is_checked_after_working_base_moves_on(self):
+        self.publish();life.revise(self.root,'fixture','1.0.0','2.0.0')
+        self.approve();life.freeze(self.root,'fixture','2.0.0-rc.1','Version 2 notes')
+        candidate=Catalog(self.root).select('fixture','2.0.0-rc.1')
+        decision=dict(self.decision(),candidate_sha256=candidate['_package_sha256'])
+        life.publish(self.root,'fixture','2.0.0-rc.1','2.0.0',Path(self.temp.name)/'delivery-2',decision)
+        life.revise(self.root,'fixture','2.0.0','3.0.0')
+        self.assertEqual(life.metadata(self.root,'fixture')['base']['version'],'2.0.0')
+        shutil.rmtree(self.root/'releases/fixture/1.0.0')
+        with self.assertRaises(CatalogError) as cm:Catalog(self.root)
+        self.assertEqual(cm.exception.code,'AGREEMENT_NOT_AVAILABLE')
+        self.assertIn('releases/fixture/2.0.0/release.json',cm.exception.paths)
+
+    def test_fixed_revision_base_digest_is_resolved_not_only_shape_checked(self):
+        self.publish();life.revise(self.root,'fixture','1.0.0','2.0.0')
+        self.approve();life.freeze(self.root,'fixture','2.0.0-rc.1','Version 2 notes')
+        folder=self.root/'releases/fixture/2.0.0-rc.1'
+        metadata=json.loads((folder/'release.json').read_bytes())
+        review=json.loads((folder/'review.json').read_bytes())
+        snapshot=metadata['source']['snapshot']
+        snapshot['agreement']['base']['sha256']='0'*64
+        snapshot_sha=sha256(life.encoded(snapshot))
+        metadata['source']['source_sha256']=snapshot_sha
+        review.update(source_snapshot=snapshot,source_sha256=snapshot_sha)
+        review_bytes=life.encoded(review)
+        (folder/'review.json').write_bytes(review_bytes)
+        metadata['files']['review.json']=sha256(review_bytes)
+        (folder/'release.json').write_bytes(life.encoded(metadata))
+        self.error('AGREEMENT_PIN_MISMATCH',Catalog,self.root)
+
     def test_malformed_review_cannot_create_an_unreadable_fixed_candidate(self):
         m=life.metadata(self.root,'fixture')
         m['review']={'decision':'approved','open_issues':[],'source_sha256':life.inspect(self.root,'fixture')['source_sha256']}

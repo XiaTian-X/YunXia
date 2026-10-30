@@ -29,7 +29,7 @@
 | 已收录协议 | [允夏许可证](agreements/yunxia-license/README.md) |
 | 当前工作正文 | [0.9.3 审阅草案](agreements/yunxia-license/text.txt) |
 | 正式发布版本 | 暂无 |
-| 维护工具与 Skill | 0.4.0 |
+| 维护工具与 Skill | 0.4.1 |
 | 项目采用状态格式 | 仅支持格式 3 |
 | 运行环境 | Python 3.11 或以上 |
 
