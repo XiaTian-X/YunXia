@@ -4,18 +4,63 @@ import shutil
 import tempfile
 import re
 from .catalog import Catalog
-from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded, canonical_sha256
+from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded, canonical_sha256, valid_relative_path
 from . import VERSION
 
 
+def source_snapshot(root):
+    """Capture the exact current inputs and Git-resolved catalog before copying."""
+    catalog = Catalog(root)
+    inputs = dict(catalog.inputs)
+    payload = {}
+
+    def add_input(rel, content):
+        if rel in inputs and inputs[rel] != content:
+            raise CatalogError('BUILD_SOURCE_CHANGED', [rel])
+        inputs[rel] = content
+
+    def add_payload(rel, content):
+        if rel in payload:
+            raise CatalogError('DISTRIBUTION_PATH_CONFLICT', [rel])
+        payload[rel] = content
+
+    for folder, destination in (('skills/yunxia', ''), ('tooling/src/yunxia', 'scripts/yunxia/')):
+        source = safe_path(root, folder)
+        if not source.is_dir():
+            raise CatalogError('DISTRIBUTION_SOURCE_MISSING', [folder])
+        for p in sorted(source.rglob('*')):
+            if '__pycache__' in p.parts or p.name == '.DS_Store' or p.suffix in ('.pyc', '.pyo'):
+                continue
+            if p.is_symlink():
+                raise CatalogError('DISTRIBUTION_SYMLINK', [str(p)])
+            if p.is_file():
+                rel = p.relative_to(root).as_posix()
+                content = safe_path(root, rel).read_bytes()
+                add_input(rel, content)
+                # The offline catalog owns the single bundled adapter registry.
+                if rel != 'tooling/src/yunxia/adapters/support.json':
+                    add_payload(destination + p.relative_to(source).as_posix(), content)
+    add_payload('scripts/yunxia.py', b'import sys\nfrom yunxia.cli import main\nif __name__ == "__main__":\n    sys.exit(main())\n')
+    if 'SKILL.md' not in payload or 'scripts/yunxia/cli.py' not in payload:
+        raise CatalogError('DISTRIBUTION_SOURCE_MISSING')
+    for rel, content in catalog.export_files().items():
+        add_payload('assets/catalog/' + rel, content)
+    input_hashes = {rel: sha256(content) for rel, content in sorted(inputs.items())}
+    output_hashes = {rel: sha256(content) for rel, content in sorted(payload.items())}
+    return {'inputs': input_hashes, 'files': payload,
+            'source_sha256': canonical_sha256({'inputs': input_hashes, 'outputs': output_hashes})}
+
+
 def source_signature(root):
-    paths=set(Catalog(root).paths)
-    for folder in ('skills/yunxia','tooling/src/yunxia'):
-        for p in safe_path(root,folder).rglob('*'):
-            if '__pycache__' in p.parts or p.name=='.DS_Store' or p.suffix in ('.pyc','.pyo'):continue
-            if p.is_symlink():raise CatalogError('DISTRIBUTION_SYMLINK',[str(p)])
-            if p.is_file():paths.add(p.relative_to(root).as_posix())
-    return canonical_sha256({p:sha256(safe_path(root,p).read_bytes()) for p in sorted(paths)})
+    return source_snapshot(root)['source_sha256']
+
+
+def write_files(root, files):
+    """Write only captured bytes; never re-read a mutable source during copying."""
+    for rel, content in sorted(files.items()):
+        path = safe_path(root, rel)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
 
 
 def inventory(root):
@@ -29,10 +74,15 @@ def inventory(root):
 
 def validate(package):
     manifest = read_json(safe_path(package,'BUILD.json'))
-    if not isinstance(manifest,dict) or type(manifest.get('format_version')) is not int or manifest['format_version'] != 1 or not isinstance(manifest.get('tool_version'), str) or not manifest['tool_version'].strip() or not isinstance(manifest.get('source_sha256'), str) or not re.fullmatch('[0-9a-f]{64}', manifest['source_sha256']):
+    if not isinstance(manifest,dict) or type(manifest.get('format_version')) is not int or manifest['format_version'] != 2 or not isinstance(manifest.get('tool_version'), str) or not manifest['tool_version'].strip() or not isinstance(manifest.get('source_sha256'), str) or not re.fullmatch('[0-9a-f]{64}', manifest['source_sha256']):
         raise CatalogError('DISTRIBUTION_FORMAT')
+    for key in ('inputs', 'files'):
+        if not isinstance(manifest.get(key), dict) or any(not valid_relative_path(p) or not isinstance(h, str) or not re.fullmatch('[0-9a-f]{64}', h) for p, h in manifest[key].items()):
+            raise CatalogError('DISTRIBUTION_FORMAT')
     if manifest.get('files') != inventory(package):
         raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
+    if manifest['source_sha256'] != canonical_sha256({'inputs': manifest['inputs'], 'outputs': manifest['files']}):
+        raise CatalogError('DISTRIBUTION_SOURCE_MISMATCH')
     Catalog(safe_path(package,'assets/catalog'))
     return manifest
 
@@ -53,39 +103,36 @@ def activate(stage, target):
 
 
 def build(root):
-    before=source_signature(root)
-    catalog = Catalog(root)
-    target = safe_path(root,'dist/skills/yunxia')
-    target.parent.mkdir(parents=True,exist_ok=True)
-    work = Path(tempfile.mkdtemp(prefix='.yunxia-build-',dir=target.parent))
-    stage = work/'next';stage.mkdir()
+    snapshot = source_snapshot(root)
+    target = safe_path(root, 'dist/skills/yunxia')
+    target.parent.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix='.yunxia-build-', dir=target.parent))
+    stage = work/'next'; stage.mkdir()
     preserve = False
     try:
-        shutil.copytree(root/'skills/yunxia',stage,dirs_exist_ok=True,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.DS_Store'))
-        scripts=stage/'scripts';scripts.mkdir(exist_ok=True)
-        shutil.copytree(root/'tooling/src/yunxia',scripts/'yunxia',ignore=shutil.ignore_patterns('__pycache__','*.pyc','.DS_Store'))
-        (scripts/'yunxia.py').write_text('import sys\nfrom yunxia.cli import main\nif __name__ == "__main__":\n    sys.exit(main())\n')
-        data=stage/'assets/catalog';data.mkdir(parents=True)
-        for rel in catalog.paths:
-            path=data/rel;path.parent.mkdir(parents=True,exist_ok=True)
-            if rel.startswith('agreements/'):
-                m=read_json(safe_path(root,rel))
-                path.write_bytes(encoded({k:m[k] for k in ('agreement_id','name','kind','recommended')}))
-            else:
-                shutil.copy2(safe_path(root,rel),path)
-        Catalog(data)
-        (stage/'BUILD.json').write_bytes(encoded({'format_version':1,'tool_version':VERSION,'source_sha256':before,'files':inventory(stage)}))
+        write_files(stage, snapshot['files'])
+        expected = {rel: sha256(content) for rel, content in snapshot['files'].items()}
+        if inventory(stage) != expected:
+            raise CatalogError('BUILD_OUTPUT_MISMATCH')
+        Catalog(safe_path(stage, 'assets/catalog'))
+        manifest = {'format_version': 2, 'tool_version': VERSION,
+                    'source_sha256': snapshot['source_sha256'],
+                    'inputs': snapshot['inputs'], 'files': expected}
+        (stage/'BUILD.json').write_bytes(encoded(manifest))
         validate(stage)
-        if before!=source_signature(root):raise CatalogError('BUILD_SOURCE_CHANGED')
-        if target.exists() and inventory(target)==inventory(stage) and (target/'BUILD.json').read_bytes()==(stage/'BUILD.json').read_bytes():
-            return {'built':str(target),'changed':False,'tool_version':VERSION}
-        try: activate(stage,target)
+        if snapshot['source_sha256'] != source_signature(root):
+            raise CatalogError('BUILD_SOURCE_CHANGED')
+        if target.exists() and inventory(target) == expected and (target/'BUILD.json').read_bytes() == encoded(manifest):
+            return {'built': str(target), 'changed': False, 'tool_version': VERSION}
+        try:
+            activate(stage, target)
         except CatalogError as error:
-            preserve=error.code=='BUILD_RECOVERY_REQUIRED'
+            preserve = error.code == 'BUILD_RECOVERY_REQUIRED'
             raise
-        return {'built':str(target),'changed':True,'tool_version':VERSION}
+        return {'built': str(target), 'changed': True, 'tool_version': VERSION}
     finally:
-        if not preserve: shutil.rmtree(work)
+        if not preserve:
+            shutil.rmtree(work)
 
 
 def install(root, destination, update=False):
@@ -107,12 +154,23 @@ def install(root, destination, update=False):
             if len(frontmatter)<3 or frontmatter[0].strip() or not re.search(r'''(?m)^name:\s*["']?yunxia["']?\s*$''',frontmatter[1]):
                 raise CatalogError('INSTALL_TARGET_NOT_SKILL')
     package=safe_path(root,'dist/skills/yunxia');manifest=validate(package)
-    if manifest.get('source_sha256')!=source_signature(root):raise CatalogError('BUILD_REQUIRED')
+    snapshot=source_snapshot(root)
+    if manifest['source_sha256']!=snapshot['source_sha256'] or manifest['inputs']!=snapshot['inputs'] or manifest['files']!={rel:sha256(content) for rel,content in snapshot['files'].items()}:
+        raise CatalogError('BUILD_REQUIRED')
     destination.parent.mkdir(parents=True,exist_ok=True)
     temp=Path(tempfile.mkdtemp(prefix='.yunxia-install-',dir=destination.parent))
     backup=None
     try:
-        candidate=temp/'next';shutil.copytree(package,candidate);validate(candidate)
+        candidate=temp/'next'; candidate.mkdir()
+        # Pin the original manifest, including its own bytes. A replacement package
+        # during installation must not be accepted just because it is self-consistent.
+        files = {rel: safe_path(package, rel).read_bytes() for rel in manifest['files']}
+        if any(sha256(content) != manifest['files'][rel] for rel, content in files.items()):
+            raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
+        files['BUILD.json'] = encoded(manifest)
+        write_files(candidate, files)
+        if validate(candidate) != manifest:
+            raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
         if manifest['source_sha256'] != source_signature(root):
             raise CatalogError('INSTALL_SOURCE_CHANGED')
         if destination.exists():

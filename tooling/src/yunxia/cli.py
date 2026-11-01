@@ -58,10 +58,12 @@ def main(argv=None):
             result={'support_registered':ref,'adapter':'scope-license-v1','testing_required':True}
         else:
             p=argparse.ArgumentParser(prog='yunxia agreement')
-            p.add_argument('action',choices=['create','inspect','review','freeze','publish','revise','recommend','retire','maintain'])
+            p.add_argument('action',choices=['create','inspect','review','freeze','publish','revise','recommend','retire','maintain','withdraw','verify-publication'])
             p.add_argument('--id',required=True);p.add_argument('--name');p.add_argument('--purpose');p.add_argument('--kind',default='license')
             p.add_argument('--text',type=Path);p.add_argument('--version');p.add_argument('--input',type=Path);p.add_argument('--notes',type=Path)
             p.add_argument('--candidate');p.add_argument('--base');p.add_argument('--destination',type=Path);p.add_argument('--reason')
+            p.add_argument('--github',help='Explicit OWNER/REPO publication destination')
+            p.add_argument('--prepare',action='store_true',help='Only reserve the publication intent; commit and push it before GitHub publication')
             p.add_argument('--state',choices=['active','paused','retired'])
             a=p.parse_args(tail)
             def run():
@@ -79,12 +81,19 @@ def main(argv=None):
                     if a.notes is None:raise CatalogError('RELEASE_NOTES_REQUIRED')
                     return life.freeze(root,a.id,a.version,a.notes.read_text())
                 if a.action=='publish':
-                    if a.destination is None or a.input is None:raise CatalogError('PUBLICATION_DECISION_REQUIRED')
-                    return life.publish(root,a.id,a.candidate,a.version,a.destination,read_json(a.input))
+                    if a.input is None or (a.destination is None)==(a.github is None):raise CatalogError('PUBLICATION_DECISION_REQUIRED')
+                    decision=read_json(a.input)
+                    if a.prepare:return life.prepare_publication(root,a.id,a.candidate,a.version,a.destination,decision,a.github)
+                    if a.github:return life.publish_github(root,a.id,a.candidate,a.version,a.github,decision)
+                    return life.publish(root,a.id,a.candidate,a.version,a.destination,decision)
+                if a.action=='verify-publication':return life.verify_publication(root,a.id,a.version)
+                if a.action=='withdraw':
+                    if a.input is None:raise CatalogError('WITHDRAWAL_FORMAT')
+                    return life.withdraw(root,a.id,a.version,read_json(a.input))
                 if a.action=='revise':return life.revise(root,a.id,a.base,a.version)
                 if a.action=='recommend':return life.recommend(root,a.id,a.version,a.reason)
                 return life.maintain(root,a.id,'retired' if a.action=='retire' else a.state,a.reason)
-            if a.action=='inspect':result=run()
+            if a.action in ('inspect','verify-publication'):result=run()
             else:
                 with life.locked(root):result=run()
         print(json.dumps(result,ensure_ascii=False,indent=2))

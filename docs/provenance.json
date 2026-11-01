@@ -794,6 +794,17 @@
       "historical_records_note": "本文既有历史事件中的路径、旧格式名称和修订字段仅描述当时事实，不是当前运行接口。",
       "license_text_changed": false,
       "formal_adoption_created": false
+    },
+    {
+      "date": "2026-11-02",
+      "tool_version": "0.5.0",
+      "request": "按独立审查意见迁移为Git历史正文与registry版本发布登记。",
+      "source_commit": "cc76cb61f05c48f51e22f67af3660b261d213e32",
+      "backup_name": "2026-11-02-git-registry-dv2dfotf",
+      "work": "三份历史草案从已提交releases路径绑定到确切Git对象，保留原身份、说明、摘要及空发布事实；不补造批准。",
+      "license_text_changed": false,
+      "formal_release_created": false,
+      "formal_adoption_created": false
     }
   ]
 }

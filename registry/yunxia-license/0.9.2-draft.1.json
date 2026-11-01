@@ -1,0 +1,26 @@
+{
+  "agreement_id": "yunxia-license",
+  "display_name": "中文智能体宽松许可证",
+  "files": {
+    "notes.md": "5f98dee55228cf5efb09d77f4a7f417ca4ffe85704d13670947b0ebcbbffde99",
+    "text.txt": "4c6f00bd5fe27674863d67a80b08a823b064251d565ac6b42528d1b936eacc57"
+  },
+  "format_version": 2,
+  "kind": "license",
+  "publication": null,
+  "sha256": "4c6f00bd5fe27674863d67a80b08a823b064251d565ac6b42528d1b936eacc57",
+  "source": {
+    "commit": "cc76cb61f05c48f51e22f67af3660b261d213e32",
+    "files": {
+      "notes.md": "releases/yunxia-license/0.9.2-draft.1/notes.md",
+      "text.txt": "releases/yunxia-license/0.9.2-draft.1/text.txt"
+    },
+    "provenance": {
+      "kind": "pre-refactor-snapshot",
+      "path": "agreements/yunxia-license/versions/0.9.2/original"
+    },
+    "tag": null
+  },
+  "status": "imported-draft",
+  "version": "0.9.2-draft.1"
+}

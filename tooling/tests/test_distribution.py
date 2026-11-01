@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,16 +13,17 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia import distribution as d
 from yunxia.catalog import Catalog
-from yunxia.common import CatalogError
+from yunxia.common import CatalogError, canonical_sha256, json_bytes, sha256
 from yunxia import cli, lifecycle
+from support import copy_catalog
 
 
 class Distribution(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.base=Path(self.temp.name).resolve();self.root=self.base/'repo';self.root.mkdir()
-        for folder in ('agreements','releases','skills','tooling/src'):
-            shutil.copytree(ROOT/folder,self.root/folder)
+        self.base=Path(self.temp.name).resolve();self.root=copy_catalog(self.base/'repo')
+        for folder in ('skills','tooling/src'):
+            shutil.copytree(ROOT/folder,self.root/folder,dirs_exist_ok=True)
 
     def old_skill_marker(self,target):
         (target/'SKILL.md').write_text('---\nname: yunxia\ndescription: Old test installation\n---\n')
@@ -37,11 +39,14 @@ class Distribution(unittest.TestCase):
         d.build(self.root)
         package=self.base/'standalone';shutil.copytree(self.root/'dist/skills/yunxia',package)
         shutil.rmtree(self.root)
-        p=subprocess.run([sys.executable,'-B',str(package/'scripts/yunxia.py'),'project','catalog'],cwd=self.base,capture_output=True,text=True)
+        env=dict(os.environ,PATH='');env.pop('YUNXIA_CATALOG_ROOT',None)
+        p=subprocess.run([sys.executable,'-B',str(package/'scripts/yunxia.py'),'project','catalog'],cwd=self.base,capture_output=True,text=True,env=env)
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)
         self.assertEqual(len(json.loads(p.stdout)['versions']),len(Catalog(ROOT).entries))
         self.assertFalse((package/'assets/agreements').exists())
         self.assertFalse((package/'history').exists())
+        self.assertFalse((package/'scripts/yunxia/adapters/support.json').exists())
+        self.assertTrue((package/'assets/catalog/adapters.json').is_file())
 
     def test_hashes_cover_nested_build_named_files(self):
         d.build(self.root);p=self.root/'dist/skills/yunxia'
@@ -101,7 +106,7 @@ class Distribution(unittest.TestCase):
 
     def test_deleting_supported_snapshot_cannot_silently_prune_installation(self):
         d.build(self.root);before=d.inventory(self.root/'dist/skills/yunxia')
-        shutil.rmtree(self.root/'releases/yunxia-license/0.9.2-draft.1')
+        (self.root/'registry/yunxia-license/0.9.2-draft.1.json').unlink()
         with self.assertRaises(CatalogError):d.build(self.root)
         self.assertEqual(d.inventory(self.root/'dist/skills/yunxia'),before)
 
@@ -137,22 +142,50 @@ class Distribution(unittest.TestCase):
             with self.assertRaises(CatalogError) as cm:d.validate(package)
             self.assertEqual(cm.exception.code,'DISTRIBUTION_FORMAT')
 
-    def test_catalog_loaded_before_signature_cannot_omit_a_new_snapshot(self):
-        real=d.source_signature;calls=[]
-        def changed(root):
-            if not calls:
-                calls.append(True)
-                source=root/'releases/yunxia-license/0.9.3-draft.2'
-                new=root/'releases/yunxia-license/test-added-snapshot'
-                shutil.copytree(source,new)
-                p=new/'release.json';data=json.loads(p.read_text())
-                data.update(version='test-added-snapshot')
-                p.write_text(json.dumps(data))
-            return real(root)
-        with patch.object(d,'source_signature',side_effect=changed):
+    def test_registry_change_during_build_does_not_activate_partial_catalog(self):
+        d.build(self.root);before=d.inventory(self.root/'dist/skills/yunxia')
+        real=d.write_files
+        def changed(destination,files):
+            real(destination,files)
+            path=self.root/'registry/yunxia-license/0.9.3-draft.2.json'
+            data=json.loads(path.read_text());data['version']='test-added-snapshot'
+            (path.parent/'test-added-snapshot.json').write_bytes(json_bytes(data))
+        with patch.object(d,'write_files',side_effect=changed),self.assertRaises(CatalogError) as cm:
             d.build(self.root)
-        package=self.root/'dist/skills/yunxia/assets/catalog'
-        self.assertEqual(Catalog(package).select('yunxia-license','test-added-snapshot')['version'],'test-added-snapshot')
+        self.assertEqual(cm.exception.code,'BUILD_SOURCE_CHANGED')
+        self.assertEqual(d.inventory(self.root/'dist/skills/yunxia'),before)
+
+    def test_restored_source_does_not_hide_mixed_stage_bytes(self):
+        d.build(self.root);before=d.inventory(self.root/'dist/skills/yunxia')
+        source=self.root/'skills/yunxia/SKILL.md';original=source.read_bytes()
+        real=d.write_files
+        def mixed(destination,files):
+            source.write_bytes(original+b'\ntransient change\n')
+            try:
+                mixed_files=dict(files);mixed_files['SKILL.md']=source.read_bytes()
+                real(destination,mixed_files)
+            finally:source.write_bytes(original)
+        with patch.object(d,'write_files',side_effect=mixed),self.assertRaises(CatalogError) as cm:
+            d.build(self.root)
+        self.assertEqual(cm.exception.code,'BUILD_OUTPUT_MISMATCH')
+        self.assertEqual(source.read_bytes(),original)
+        self.assertEqual(d.inventory(self.root/'dist/skills/yunxia'),before)
+
+    def test_self_consistent_tampered_package_cannot_claim_current_source(self):
+        d.build(self.root);package=self.root/'dist/skills/yunxia'
+        path=package/'SKILL.md';path.write_bytes(path.read_bytes()+b'\nunexpected instruction\n')
+        manifest=json.loads((package/'BUILD.json').read_text())
+        manifest['files']['SKILL.md']=sha256(path.read_bytes())
+        (package/'BUILD.json').write_bytes(json_bytes(manifest))
+        with self.assertRaises(CatalogError) as cm:d.validate(package)
+        self.assertEqual(cm.exception.code,'DISTRIBUTION_SOURCE_MISMATCH')
+        manifest['source_sha256']=canonical_sha256({'inputs':manifest['inputs'],'outputs':manifest['files']})
+        (package/'BUILD.json').write_bytes(json_bytes(manifest))
+        d.validate(package)
+        target=self.base/'skills/yunxia';target.mkdir(parents=True);self.old_skill_marker(target)
+        with self.assertRaises(CatalogError) as cm:d.install(self.root,target,True)
+        self.assertEqual(cm.exception.code,'BUILD_REQUIRED')
+        self.assertIn('Old test installation',(target/'SKILL.md').read_text())
 
     def test_adapter_reads_registry_after_acquiring_maintenance_lock(self):
         registry=self.root/'tooling/src/yunxia/adapters/support.json'
@@ -173,13 +206,12 @@ class Distribution(unittest.TestCase):
     def test_source_change_while_installing_does_not_replace_previous_install(self):
         d.build(self.root);target=self.base/'skills/yunxia';target.mkdir(parents=True)
         self.old_skill_marker(target);(target/'keep').write_text('keep')
-        real=shutil.copytree
-        def changed(*args,**kwargs):
-            result=real(*args,**kwargs)
-            if Path(args[1]).name=='next':
+        real=d.write_files
+        def changed(destination,files):
+            real(destination,files)
+            if destination.name=='next':
                 p=self.root/'skills/yunxia/SKILL.md';p.write_text(p.read_text()+'\nconcurrent source change\n')
-            return result
-        with patch.object(shutil,'copytree',side_effect=changed),self.assertRaises(CatalogError) as cm:
+        with patch.object(d,'write_files',side_effect=changed),self.assertRaises(CatalogError) as cm:
             d.install(self.root,target,True)
         self.assertEqual(cm.exception.code,'INSTALL_SOURCE_CHANGED')
         self.assertEqual((target/'keep').read_text(),'keep')

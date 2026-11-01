@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import shutil
+import subprocess
 from yunxia import lifecycle as life
 from yunxia.catalog import Catalog, reference
 from yunxia.common import json_bytes
@@ -11,7 +12,15 @@ CURRENT_VERSION = '0.9.3-draft.2'
 
 
 def copy_catalog(target):
-    for folder in ('agreements', 'releases'):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['git', 'clone', '--quiet', '--no-hardlinks', '--no-checkout',
+                    str(ROOT), str(target)], check=True, capture_output=True)
+    subprocess.run(['git', '-C', str(target), 'remote', 'remove', 'origin'], check=True,
+                   capture_output=True)
+    for key, value in (('user.name', 'Fixture maintainer'), ('user.email', 'fixture@example.test'),
+                       ('commit.gpgsign', 'false'), ('core.hooksPath', '/dev/null')):
+        subprocess.run(['git', '-C', str(target), 'config', key, value], check=True)
+    for folder in ('agreements', 'registry'):
         shutil.copytree(ROOT/folder, target/folder, ignore=shutil.ignore_patterns('.DS_Store'))
     registry = target/'tooling/src/yunxia/adapters/support.json'
     registry.parent.mkdir(parents=True, exist_ok=True)
@@ -19,11 +28,38 @@ def copy_catalog(target):
     return target
 
 
+def git_commit(root, message='Fixture source snapshot'):
+    """Commit isolated test inputs, never the real maintenance repository."""
+    if root.resolve() == ROOT.resolve():
+        raise ValueError('Tests cannot commit the source repository')
+    subprocess.run(['git', '-C', str(root), 'add', '--all'], check=True, capture_output=True)
+    subprocess.run(['git', '-C', str(root), 'commit', '--quiet', '--allow-empty',
+                    '--no-verify', '-m', message], check=True, capture_output=True)
+    return subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+
+
+def pin_payload(root, record, payload):
+    """Create real Git blobs for intentional corruption/reference tests."""
+    paths = {}
+    for logical, content in payload.items():
+        if logical not in record['files']:
+            continue
+        rel = 'fixture-payload/' + logical
+        path = root/rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+        paths[logical] = rel
+    record['source']['commit'] = git_commit(root, 'Fixture payload snapshot')
+    record['source']['files'] = paths
+    return record
+
+
 def approve(root, agreement_id):
     info = life.inspect(root, agreement_id)
     life.review(root, agreement_id, {'source_sha256': info['source_sha256'],
                 'reviewer': 'fixture reviewer', 'date': '2026-10-30', 'decision': 'approved',
                 'basis': 'fictional test evidence', 'open_issues': []})
+    git_commit(root, 'Fixture reviewed source')
 
 
 def publish(root, agreement_id, candidate='1.0.0-rc.1', version='1.0.0'):

@@ -45,10 +45,10 @@ class CurrentState(unittest.TestCase):
     def test_released_metadata_matches_documented_schemas(self):
         from jsonschema import Draft202012Validator
         meta=json.loads((ROOT/'tooling/schemas/agreement.schema.json').read_text())
-        release=json.loads((ROOT/'tooling/schemas/release.schema.json').read_text())
+        release=json.loads((ROOT/'tooling/schemas/registry-entry.schema.json').read_text())
         for p in (ROOT/'agreements').glob('*/agreement.json'):
             Draft202012Validator(meta).validate(json.loads(p.read_text()))
-        for p in (ROOT/'releases').glob('*/*/release.json'):
+        for p in (ROOT/'registry').glob('*/*.json'):
             Draft202012Validator(release).validate(json.loads(p.read_text()))
 
     def test_reference_schema_rejects_extra_fields(self):

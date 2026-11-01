@@ -1,12 +1,13 @@
-"""Local protocol lifecycle. Publishing is explicit, exact-byte filesystem delivery."""
+"""Reviewed Git sources, fixed registry identities and recoverable publication."""
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 import os
 import shutil
 import tempfile
-from ..catalog import Catalog, reference, validate_reference, validate_review_record
-from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded, atomic_write, canonical_sha256
+from ..catalog import Catalog, reference, validate_reference, validate_review_record, validate_review_dependencies
+from .. import gitstore
+from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded, atomic_write, canonical_sha256, parse_json
 
 
 def write(path, content):
@@ -65,6 +66,7 @@ def metadata(root, aid):
             validate_reference(m[key])
             if m[key]['agreement_id'] != aid:
                 raise CatalogError('AGREEMENT_REFERENCE_MISMATCH', [key])
+    validate_review_dependencies(m.get('review_dependencies', []))
     if m['review'] is not None:
         validate_review_record(m['review'])
     return m
@@ -98,7 +100,16 @@ def source_snapshot(root, aid):
     agreement = {k: m[k] for k in ('agreement_id', 'name', 'kind', 'purpose', 'target_version')}
     if m['base'] is not None:
         agreement['base'] = m['base']
-    return {'agreement': agreement, 'files': files}
+    snapshot = {'format_version':1, 'agreement': agreement, 'files': files}
+    dependencies = {}
+    for rel in validate_review_dependencies(m.get('review_dependencies', [])):
+        dependency = safe_path(root, rel)
+        if not dependency.is_file(): raise CatalogError('REVIEW_DEPENDENCY_MISSING', [rel])
+        content = dependency.read_bytes()
+        if not content.strip(): raise CatalogError('REVIEW_DEPENDENCY_MISSING', [rel])
+        dependencies[rel] = sha256(content)
+    if dependencies: snapshot['dependencies'] = dependencies
+    return snapshot
 
 
 def create(root, aid, name, purpose, body, target, kind='license'):
@@ -191,73 +202,104 @@ def tree_matches(directory, files):
     return match(directory, expected)
 
 
+def record_path(root, aid, version):
+    return safe_path(root, f'registry/{valid_id(aid)}/{valid_id(version)}.json')
+
+
 def freeze(root, aid, version, notes):
     valid_id(version)
     if not isinstance(notes, str) or not notes.strip(): raise CatalogError('RELEASE_NOTES_REQUIRED')
     info = inspect(root, aid); m = info['agreement']
-    if m['maintenance']!='active':raise CatalogError('MAINTENANCE_INACTIVE')
+    if m['maintenance'] != 'active': raise CatalogError('MAINTENANCE_INACTIVE')
     if not info['review_current_and_approved']: raise CatalogError('REVIEW_REQUIRED_OR_STALE')
-    if version == m['target_version']:
-        raise CatalogError('CANDIDATE_VERSION_EQUALS_TARGET')
-    if safe_path(root, f"releases/{aid}/{m['target_version']}").exists():
-        raise CatalogError('TARGET_VERSION_EXISTS')
-    p = folder(root, aid)
-    body = safe_path(p,'text.txt').read_bytes()
-    files = {'text.txt':body,'notes.md':notes.encode(),'review.json':encoded(m['review']), 'adoption.md':(p/'adoption.md').read_bytes()}
-    if sha256(body)!=info['source_snapshot']['files']['text.txt'] or sha256(files['adoption.md'])!=info['source_snapshot']['files']['adoption.md']:
+    if version == m['target_version']: raise CatalogError('CANDIDATE_VERSION_EQUALS_TARGET')
+    target = record_path(root, aid, version)
+    if target.exists(): raise CatalogError('FIXED_VERSION_EXISTS', [str(target)])
+    if record_path(root, aid, m['target_version']).exists(): raise CatalogError('TARGET_VERSION_EXISTS')
+    commit = gitstore.head(root)
+    metadata_bytes = gitstore.read_blob(root, commit, f'agreements/{aid}/agreement.json')
+    try: committed = parse_json(metadata_bytes.decode('utf-8'))
+    except (ValueError,UnicodeError): raise CatalogError('REVIEW_NOT_COMMITTED') from None
+    if not isinstance(committed,dict): raise CatalogError('REVIEW_NOT_COMMITTED')
+    if committed.get('review') != m['review']:
+        raise CatalogError('REVIEW_NOT_COMMITTED')
+    source_agreement = {k: committed.get(k) for k in ('agreement_id','name','kind','purpose','target_version')}
+    if committed.get('base') is not None: source_agreement['base'] = committed['base']
+    if source_agreement != info['source_snapshot']['agreement']:
         raise CatalogError('REVIEW_SOURCE_CHANGED')
-    record = {'format_version':1,'agreement_id':aid,'version':version,'sha256':sha256(body),'display_name':m['name'],'kind':m['kind'],'status':'candidate','publication':None, 'source':{'source_sha256':info['source_sha256'],'snapshot':info['source_snapshot'],'target_version':m['target_version']},'files':{k:sha256(v) for k,v in files.items()}}
-    files['release.json'] = encoded(record)
-    # Re-read after staging the plan; review cannot authorize a concurrent edit.
+    if sorted(validate_review_dependencies(committed.get('review_dependencies', []))) != sorted(m.get('review_dependencies', [])):
+        raise CatalogError('REVIEW_SOURCE_CHANGED')
+    for rel, expected in info['source_snapshot'].get('dependencies', {}).items():
+        gitstore.read_blob(root, commit, rel, expected)
+    for rel, expected in info['source_snapshot']['files'].items():
+        gitstore.read_blob(root, commit, f'agreements/{aid}/{rel}', expected)
+    source_files = {'text.txt': f'agreements/{aid}/text.txt', 'adoption.md': f'agreements/{aid}/adoption.md'}
+    payload = {name: gitstore.read_blob(root, commit, path) for name,path in source_files.items()}
+    payload.update({'notes.md': notes.encode(), 'review.json': encoded(m['review'])})
+    tag = f'{aid}/v{version}'
+    record = {'format_version':2, 'agreement_id':aid, 'version':version,
+              'sha256':sha256(payload['text.txt']), 'display_name':m['name'], 'kind':m['kind'],
+              'status':'candidate', 'publication':None,
+              'source':{'commit':commit, 'tag':tag, 'files':source_files, 'metadata_sha256':sha256(metadata_bytes),
+                        'source_sha256':info['source_sha256'], 'snapshot':info['source_snapshot'],
+                        'target_version':m['target_version']},
+              'files':{k:sha256(v) for k,v in payload.items()}, 'notes':notes, 'review':m['review']}
     if source_snapshot(root,aid) != info['source_snapshot']: raise CatalogError('REVIEW_SOURCE_CHANGED')
-    target = safe_path(root, f'releases/{aid}/{version}')
-    put_new_tree(target,files)
-    return {'frozen':reference(record),'status':'candidate','publication':None}
+    gitstore.ensure_tag(root,tag,commit)
+    write(target, encoded(record))
+    return {'frozen':reference(record), 'status':'candidate', 'publication':None,
+            'source_commit':commit, 'tag':tag, 'registry':str(target)}
 
 
 def publish(root, aid, candidate, version, destination, decision):
-    valid_id(version)
-    if metadata(root,aid)['maintenance']!='active':raise CatalogError('MAINTENANCE_INACTIVE')
-    entry = Catalog(root).select(aid,candidate)
-    if entry['status'] != 'candidate': raise CatalogError('CANDIDATE_REQUIRED')
-    if not isinstance(decision, dict) or set(decision) != {'date','confirmed_by','basis','candidate_sha256'} or not all(isinstance(x,str) and x.strip() for x in decision.values()):
-        raise CatalogError('PUBLICATION_DECISION_REQUIRED')
-    source_dir = safe_path(root, f'releases/{aid}/{candidate}')
-    package_sha = canonical_sha256({p.name:sha256(p.read_bytes()) for p in sorted(source_dir.iterdir()) if p.is_file()})
-    if decision['candidate_sha256'] != package_sha: raise CatalogError('PUBLICATION_CANDIDATE_CHANGED')
+    from ..publication import publish_local
+    return publish_local(root, aid, candidate, version, destination, decision)
+
+
+def prepare_publication(root, aid, candidate, version, destination, decision, github=None):
+    from ..publication import prepare
+    method = 'github-release' if github else 'verified-local-directory'
+    channel = github if github else str(destination)
+    record, files = prepare(root, aid, candidate, version, method, channel, decision)
+    return {'prepared':reference(record), 'status':record['status'],
+            'registry':str(record_path(root,aid,version)), 'assets':record['publication']['assets'],
+            'registry_commit_required':True}
+
+
+def publish_github(root, aid, candidate, version, repository, decision, backend=None):
+    from ..publication import publish_github as run
+    return run(root, aid, candidate, version, repository, decision, backend)
+
+
+def verify_publication(root, aid, version, backend=None):
+    from ..publication import verify_publication as run
+    return run(root, aid, version, backend)
+
+
+def withdraw(root, aid, version, decision):
+    if not isinstance(decision,dict) or set(decision) != {'date','reason','confirmed_by'} or not all(isinstance(x,str) and x.strip() for x in decision.values()):
+        raise CatalogError('WITHDRAWAL_FORMAT')
     date.fromisoformat(decision['date'])
-    if version != entry['source']['target_version']: raise CatalogError('PUBLICATION_VERSION_MISMATCH')
-    if destination.is_symlink(): raise CatalogError('PUBLICATION_PATH_INVALID')
-    destination = destination.parent.resolve() / destination.name
-    root = root.resolve()
-    if destination == root or root in destination.parents: raise CatalogError('PUBLICATION_MUST_BE_OUTSIDE_REPOSITORY')
-    record = {k:v for k,v in entry.items() if not k.startswith('_') and k not in ('renderer','capabilities','output_name')}
-    record.update(version=version,status='released',publication={**decision,'channel':str(destination),'method':'verified-local-directory'})
-    files = {rel:safe_path(source_dir,rel).read_bytes() for rel in entry['files']}
-    if any(sha256(content)!=entry['files'][rel] for rel,content in files.items()):
-        raise CatalogError('PUBLICATION_CANDIDATE_CHANGED')
-    files['release.json'] = encoded(record)
-    target = safe_path(root, f'releases/{aid}/{version}')
-    for location in (destination,target):
-        if location.exists() and not tree_matches(location, files):
-            raise CatalogError('FIXED_VERSION_EXISTS',[str(location)])
-    if not destination.exists(): put_new_tree(destination,files)
-    if not tree_matches(destination, files):
-        raise CatalogError('PUBLICATION_DELIVERY_CHANGED', [str(destination)])
-    try:
-        if not target.exists(): put_new_tree(target,files)
-    except BaseException:
-        raise CatalogError('PUBLICATION_RECOVERY_REQUIRED',[str(destination)]) from None
-    if not tree_matches(target, files) or not tree_matches(destination, files):
-        raise CatalogError('PUBLICATION_RECOVERY_REQUIRED', [str(destination), str(target)])
-    return {'released':reference(record),'delivery_verified':True,'channel':str(destination)}
+    entry = Catalog(root).select(aid,version)
+    if entry['status'] != 'released': raise CatalogError('WITHDRAWAL_REQUIRES_RELEASE')
+    path = record_path(root,aid,version)
+    record = read_json(path)
+    if record.get('withdrawal') is not None and record['withdrawal'] != decision:
+        raise CatalogError('WITHDRAWAL_ALREADY_RECORDED')
+    record['withdrawal'] = decision
+    m=metadata(root,aid)
+    if m['recommended'] == reference(record):
+        m['recommended']=None
+        write(folder(root,aid)/'agreement.json',encoded(m))
+    write(path,encoded(record))
+    return {'withdrawn':reference(record),'existing_adoptions_changed':False}
 
 
 def revise(root, aid, base, target):
     valid_id(target)
     m = metadata(root,aid); entry = Catalog(root).select(aid,base)
     if m['maintenance']!='active':raise CatalogError('MAINTENANCE_INACTIVE')
-    if safe_path(root,f'releases/{aid}/{target}').exists():raise CatalogError('TARGET_VERSION_EXISTS')
+    if record_path(root,aid,target).exists():raise CatalogError('TARGET_VERSION_EXISTS')
     body = safe_path(folder(root,aid),'text.txt').read_bytes()
     if body != entry['_text']: raise CatalogError('WORKING_TEXT_DIFFERS_FROM_BASE')
     m.update(target_version=target,stage='draft',review=None,base=reference(entry))
@@ -270,7 +312,10 @@ def recommend(root, aid, version, reason):
     m=metadata(root,aid)
     if version is not None and m['maintenance']=='retired':raise CatalogError('MAINTENANCE_INACTIVE')
     ref=None if version is None else reference(Catalog(root).select(aid,version))
-    if ref and Catalog(root).resolve(ref)['status']!='released': raise CatalogError('RECOMMENDATION_REQUIRES_RELEASE')
+    if ref:
+        entry = Catalog(root).resolve(ref)
+        if entry['status'] != 'released' or entry.get('withdrawal') is not None:
+            raise CatalogError('RECOMMENDATION_REQUIRES_RELEASE')
     m['recommended']=ref; m['recommendation_reason']=reason
     write(folder(root,aid)/'agreement.json',encoded(m))
     return {'recommended':ref,'existing_project_adoptions_changed':False}

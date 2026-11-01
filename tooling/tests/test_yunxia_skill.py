@@ -18,7 +18,7 @@ sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia.project import workflow as yx
 from yunxia.catalog import Catalog
 from yunxia import lifecycle
-from support import copy_catalog, add_protocol, approve, publish, CURRENT_VERSION
+from support import copy_catalog, add_protocol, approve, publish, git_commit, pin_payload, CURRENT_VERSION
 
 
 
@@ -430,7 +430,11 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_bundled_license_tampering_is_rejected(self):
         self.scan()
         fake = self.catalog_copy()
-        (fake / 'releases/yunxia-license/0.9.3-draft.2/text.txt').write_text('changed')
+        path = fake/'registry/yunxia-license/0.9.3-draft.2.json'
+        entry = Catalog(fake).select('yunxia-license', CURRENT_VERSION)
+        record = json.loads(path.read_text())
+        pin_payload(fake, record, dict(entry['_payload'], **{'text.txt': b'changed'}))
+        path.write_bytes(yx.encoded(record))
         with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.assert_error('AGREEMENT_TEXT_HASH_MISMATCH', self.generate)
 
@@ -515,13 +519,14 @@ class YunXiaWorkflow(unittest.TestCase):
         self.adopt()
         before = (self.root / yx.STATE).read_bytes()
         fake = self.catalog_copy()
-        folder = fake / 'releases/yunxia-license/0.9.3-draft.2'
+        path = fake/'registry/yunxia-license/0.9.3-draft.2.json'
+        entry = Catalog(fake).select('yunxia-license', CURRENT_VERSION)
         body = b'TEST ONLY: changed terms\n'
-        (folder / 'text.txt').write_bytes(body)
-        manifest = json.loads((folder / 'release.json').read_text())
+        manifest = json.loads(path.read_text())
+        pin_payload(fake, manifest, dict(entry['_payload'], **{'text.txt': body}))
         manifest['sha256'] = yx.digest(body)
         manifest['files']['text.txt'] = manifest['sha256']
-        (folder / 'release.json').write_bytes(yx.encoded(manifest))
+        path.write_bytes(yx.encoded(manifest))
         registry = fake/'tooling/src/yunxia/adapters/support.json'
         data = json.loads(registry.read_text())
         for row in data['supported']:
@@ -529,8 +534,8 @@ class YunXiaWorkflow(unittest.TestCase):
                 row['agreement'] = yx.reference(manifest)
         registry.write_bytes(yx.encoded(data))
         with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
-            self.assert_error('AGREEMENT_PIN_MISMATCH', self.generate, 'adopt')
-            self.assert_error('AGREEMENT_PIN_MISMATCH', yx.verify, self.root)
+            self.assert_error('VERSION_IDENTITY_CHANGED', self.generate, 'adopt')
+            self.assert_error('VERSION_IDENTITY_CHANGED', yx.verify, self.root)
         self.assertEqual((self.root / yx.STATE).read_bytes(), before)
 
     def test_different_version_requires_its_own_adoption(self):
@@ -596,14 +601,14 @@ class YunXiaWorkflow(unittest.TestCase):
 
     def test_catalog_identity_and_symlinks_are_rejected(self):
         fake = self.catalog_copy()
-        p = fake / 'releases/yunxia-license/0.9.3-draft.2/release.json'
+        p = fake / 'registry/yunxia-license/0.9.3-draft.2.json'
         data = json.loads(p.read_text()); data['version'] = 'wrong-version'
         p.write_bytes(yx.encoded(data))
         with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.assert_error('RELEASE_IDENTITY_MISMATCH', yx.catalog)
         data['version'] = CURRENT_VERSION; p.write_bytes(yx.encoded(data))
-        text = p.parent / 'text.txt'; body = text.read_bytes(); text.unlink()
-        outside = Path(self.temp.name)/'outside.txt'; outside.write_bytes(body); text.symlink_to(outside)
+        body = p.read_bytes(); p.unlink()
+        outside = Path(self.temp.name)/'outside.json'; outside.write_bytes(body); p.symlink_to(outside)
         with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             self.assert_error('CATALOG_PATH_INVALID', yx.catalog)
 
@@ -626,7 +631,7 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_metadata_cannot_advertise_unimplemented_generation(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake, kind='nda', renderer=None)
-        p = fake / 'releases/fixture/1.0.0-rc.1/release.json'
+        p = fake / 'registry/fixture/1.0.0-rc.1.json'
         manifest = json.loads(p.read_text()); manifest['capabilities'] = ['adopt']
         p.write_bytes(yx.encoded(manifest))
         with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
@@ -634,7 +639,7 @@ class YunXiaWorkflow(unittest.TestCase):
 
     def test_nonstandard_catalog_json_is_rejected(self):
         fake = self.catalog_copy()
-        p = fake / 'releases/yunxia-license/0.9.3-draft.2/release.json'
+        p = fake / 'registry/yunxia-license/0.9.3-draft.2.json'
         original = p.read_bytes()
         with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
             data = json.loads(original); data['format_version'] = True
@@ -733,6 +738,43 @@ class YunXiaWorkflow(unittest.TestCase):
             self.answer(payload); self.generate('adopt')
             self.assertFalse(yx.load_state(self.root)['adoption']['accept_draft'])
             self.assertTrue(yx.verify(self.root)['structure_valid'])
+
+    def test_withdrawn_version_keeps_old_adoption_verifiable_without_new_generation(self):
+        fake = self.catalog_copy()
+        ref = self.add_fixture_protocol(fake, released=True)
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+            snap = self.scan(); self.select(ref)
+            payload = self.facts()
+            payload['adoption'] = {'authorized': True, 'accept_draft': False,
+                                  'date': '2026-11-02', 'snapshot_id': snap['snapshot_id']}
+            self.answer(payload); self.generate('adopt')
+            before = {p: p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+            lifecycle.withdraw(fake, 'fixture', '1.0.0',
+                               {'date': '2026-11-02', 'confirmed_by': 'fixture maintainer',
+                                'reason': 'Fictional withdrawal test'})
+            self.assertTrue(yx.verify(self.root)['structure_valid'])
+            self.assert_error('UNSUPPORTED_AGREEMENT_WORKFLOW', self.generate, 'adopt')
+            self.assertEqual({p: p.read_bytes() for p in self.root.rglob('*') if p.is_file()}, before)
+
+    def test_prepared_publication_cannot_be_adopted_even_with_registered_adapter(self):
+        fake = self.catalog_copy()
+        self.add_fixture_protocol(fake)
+        candidate = Catalog(fake).select('fixture', '1.0.0-rc.1')
+        result = lifecycle.prepare_publication(fake, 'fixture', '1.0.0-rc.1', '1.0.0',
+                    Path(self.temp.name)/'unpublished-delivery',
+                    {'date': '2026-11-02', 'confirmed_by': 'fixture maintainer',
+                     'basis': 'Fictional preparation test', 'candidate_sha256': candidate['_package_sha256']})
+        ref = result['prepared']
+        path = fake/'tooling/src/yunxia/adapters/support.json'
+        support = json.loads(path.read_text())
+        support['supported'].append({'agreement': ref, 'adapter': 'scope-license-v1',
+                                     'output_name': 'LICENSE.fixture-1.txt'})
+        path.write_bytes(yx.encoded(support))
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+            self.scan(); self.select(ref)
+            self.assertEqual(yx.selected(yx.load_state(self.root))['capabilities'], ['inspect'])
+            self.assert_error('UNSUPPORTED_AGREEMENT_WORKFLOW', self.generate)
+            self.assertFalse((self.root/'LICENSE.txt').exists())
 
     def test_draft_acceptance_is_rechecked_in_saved_adoption(self):
         self.adopt()

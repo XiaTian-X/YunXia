@@ -18,7 +18,7 @@ def check(root, run_tests=False):
                            'review_current_and_approved':result['review_current_and_approved']})
     for row in supports(root/'tooling/src/yunxia/adapters/support.json'):
         catalog.resolve(row['agreement'])
-    source_dirs=('docs','agreements','releases','tooling','skills')
+    source_dirs=('docs','agreements','registry','tooling','skills')
     paths=[root/'README.md',root/'CHANGELOG.md']
     for directory in source_dirs:
         for p in (root/directory).rglob('*'):

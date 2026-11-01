@@ -1,7 +1,6 @@
 import copy
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,12 +18,20 @@ class Lifecycle(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=(Path(self.temp.name)/'repository').resolve();self.root.mkdir()
+        subprocess.run(['git','init','-q',str(self.root)],check=True)
+        for key,value in (('user.name','Fixture'),('user.email','fixture@example.test'),('commit.gpgsign','false'),('core.hooksPath','/dev/null')):
+            subprocess.run(['git','-C',str(self.root),'config',key,value],check=True)
         life.create(self.root,'fixture','Fixture','Only a test protocol',b'Test terms version 1.0.0\n','1.0.0')
+
+    def commit(self):
+        subprocess.run(['git','-C',str(self.root),'add','--all'],check=True,capture_output=True)
+        subprocess.run(['git','-C',str(self.root),'commit','-q','--allow-empty','--no-verify','-m','Fixture snapshot'],check=True,capture_output=True)
 
     def approve(self):
         info=life.inspect(self.root,'fixture')
         decision={'source_sha256':info['source_sha256'],'reviewer':'fixture maintainer','date':'2026-10-25','decision':'approved','basis':'test-only review evidence','open_issues':[]}
         life.review(self.root,'fixture',decision)
+        self.commit()
         return decision
 
     def freeze(self):
@@ -61,6 +68,59 @@ class Lifecycle(unittest.TestCase):
         self.approve();(self.root/'agreements/fixture/adoption.md').write_text('Changed adoption rules')
         self.assertFalse(life.inspect(self.root,'fixture')['review_current_and_approved'])
 
+    def test_freeze_requires_committed_review_and_source(self):
+        self.approve()
+        m=life.metadata(self.root,'fixture');m['review']['basis']='Uncommitted changed decision'
+        (self.root/'agreements/fixture/agreement.json').write_bytes(life.encoded(m))
+        self.error('REVIEW_NOT_COMMITTED',life.freeze,self.root,'fixture','rc1','notes')
+        self.assertFalse((self.root/'registry/fixture/rc1.json').exists())
+
+    def test_unrelated_commit_does_not_change_reviewed_materials(self):
+        self.approve();original=life.inspect(self.root,'fixture')['source_sha256']
+        (self.root/'unrelated.txt').write_text('Another protocol or tooling change')
+        self.commit()
+        self.assertEqual(life.inspect(self.root,'fixture')['source_sha256'],original)
+        life.freeze(self.root,'fixture','rc1','notes')
+        self.assertEqual(Catalog(self.root).select('fixture','rc1')['_text'],b'Test terms version 1.0.0\n')
+
+    def test_shared_review_dependencies_are_bound_to_frozen_git_materials(self):
+        shared=self.root/'docs/shared.md';shared.parent.mkdir();shared.write_bytes(b'Original shared rule\n')
+        path=self.root/'agreements/fixture/agreement.json'
+        metadata=life.metadata(self.root,'fixture');metadata['review_dependencies']=['docs/shared.md']
+        path.write_bytes(life.encoded(metadata))
+        self.approve();life.freeze(self.root,'fixture','rc1','notes')
+        before=Catalog(self.root).select('fixture','rc1')
+        digest=sha256(b'Original shared rule\n')
+        self.assertEqual(before['source']['snapshot']['format_version'],1)
+        self.assertEqual(before['source']['snapshot']['dependencies'],{'docs/shared.md':digest})
+        shared.write_bytes(b'Changed shared rule\n')
+        self.assertFalse(life.inspect(self.root,'fixture')['review_current_and_approved'])
+        fixed=Catalog(self.root)
+        self.assertEqual(fixed.blobs[digest],b'Original shared rule\n')
+        self.assertEqual(fixed.select('fixture','rc1')['_package_sha256'],before['_package_sha256'])
+
+    def test_review_dependency_declaration_change_invalidates_approval(self):
+        shared=self.root/'docs/shared.md';shared.parent.mkdir();shared.write_text('Shared rule')
+        path=self.root/'agreements/fixture/agreement.json'
+        metadata=life.metadata(self.root,'fixture');metadata['review_dependencies']=['docs/shared.md']
+        path.write_bytes(life.encoded(metadata));self.approve()
+        metadata=life.metadata(self.root,'fixture');metadata['review_dependencies']=[]
+        path.write_bytes(life.encoded(metadata))
+        self.assertFalse(life.inspect(self.root,'fixture')['review_current_and_approved'])
+        self.error('REVIEW_REQUIRED_OR_STALE',life.freeze,self.root,'fixture','rc1','notes')
+
+    def test_private_recursive_and_out_of_scope_review_dependencies_are_rejected(self):
+        path=self.root/'agreements/fixture/agreement.json'
+        metadata=life.metadata(self.root,'fixture')
+        for rel in ('../outside.md','registry/fixture/1.json','agreements/fixture/agreement.json','docs/.private/secret.md','docs/private.key'):
+            data=dict(metadata,review_dependencies=[rel]);path.write_bytes(life.encoded(data))
+            with self.subTest(path=rel),self.assertRaises(CatalogError):life.inspect(self.root,'fixture')
+        shared=self.root/'docs/shared.md';shared.parent.mkdir(exist_ok=True)
+        external=Path(self.temp.name)/'outside.md';external.write_text('Private outside input')
+        shared.symlink_to(external)
+        path.write_bytes(life.encoded(dict(metadata,review_dependencies=['docs/shared.md'])))
+        self.error('CATALOG_PATH_INVALID',life.inspect,self.root,'fixture')
+
     def test_candidate_is_immutable_and_does_not_enable_adapter(self):
         self.freeze();entry=Catalog(self.root).select('fixture','1.0.0-rc.1')
         self.assertEqual(entry['status'],'candidate');self.assertEqual(entry['capabilities'],['inspect'])
@@ -81,8 +141,9 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(published['status'],'released')
         again=life.publish(self.root,'fixture','1.0.0-rc.1','1.0.0',Path(self.temp.name)/'delivery',self.decision())
         self.assertEqual(result,again)
-        for p in (self.root/'releases/fixture/1.0.0').iterdir():
-            self.assertEqual(p.read_bytes(),(Path(self.temp.name)/'delivery'/p.name).read_bytes())
+        for name,digest in published['publication']['assets'].items():
+            self.assertEqual(sha256((Path(self.temp.name)/'delivery'/name).read_bytes()),digest)
+        self.assertTrue(life.verify_publication(self.root,'fixture','1.0.0')['publication_verified'])
 
     def test_publish_refuses_other_destination_contents_and_symlinks(self):
         self.freeze();target=Path(self.temp.name)/'delivery';target.mkdir();(target/'keep').write_text('keep')
@@ -92,14 +153,14 @@ class Lifecycle(unittest.TestCase):
         self.error('PUBLICATION_PATH_INVALID',life.publish,self.root,'fixture','1.0.0-rc.1','1.0.0',link,self.decision())
 
     def test_delivery_survives_recording_failure_and_retry_recovers(self):
-        self.freeze();real=life.put_new_tree
-        def fail_record(path,files):
-            if self.root in path.parents:raise OSError('fixture disk failure')
-            return real(path,files)
+        self.freeze();real=life.write
+        def fail_record(path,content):
+            if path==self.root/'registry/fixture/1.0.0.json' and json.loads(content).get('status')=='released':raise OSError('fixture disk failure')
+            return real(path,content)
         target=Path(self.temp.name)/'delivery'
-        with patch.object(life,'put_new_tree',side_effect=fail_record):
+        with patch.object(life,'write',side_effect=fail_record):
             self.error('PUBLICATION_RECOVERY_REQUIRED',life.publish,self.root,'fixture','1.0.0-rc.1','1.0.0',target,self.decision())
-        self.assertTrue((target/'text.txt').is_file());self.assertFalse((self.root/'releases/fixture/1.0.0').exists())
+        self.assertTrue((target/'text.txt').is_file());self.assertEqual(Catalog(self.root).select('fixture','1.0.0')['status'],'prepared')
         life.publish(self.root,'fixture','1.0.0-rc.1','1.0.0',target,self.decision())
         self.assertEqual(Catalog(self.root).select('fixture','1.0.0')['status'],'released')
 
@@ -113,17 +174,18 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(Catalog(self.root).select('fixture','1.0.0')['status'],'released')
 
     def test_revision_preserves_releases_and_never_overwrites_working_changes(self):
-        self.publish();before=(self.root/'releases/fixture/1.0.0/text.txt').read_bytes()
+        self.publish();before=Catalog(self.root).select('fixture','1.0.0')['_text']
         life.revise(self.root,'fixture','1.0.0','2.0.0')
         self.assertIsNone(life.metadata(self.root,'fixture')['review'])
         (self.root/'agreements/fixture/text.txt').write_bytes(b'New draft')
         self.error('WORKING_TEXT_DIFFERS_FROM_BASE',life.revise,self.root,'fixture','1.0.0','3.0.0')
-        self.assertEqual((self.root/'releases/fixture/1.0.0/text.txt').read_bytes(),before)
+        self.assertEqual(Catalog(self.root).select('fixture','1.0.0')['_text'],before)
 
     def test_release_payload_tampering_or_extra_files_is_detected(self):
-        self.freeze();p=self.root/'releases/fixture/1.0.0-rc.1/notes.md';p.write_text('changed')
+        self.freeze();p=self.root/'registry/fixture/1.0.0-rc.1.json'
+        data=json.loads(p.read_bytes());data['notes']='changed';p.write_bytes(life.encoded(data))
         self.error('RELEASE_FILE_HASH_MISMATCH',Catalog,self.root)
-        p.write_text('# Test-only release notes\n');(p.parent/'unexpected').write_text('extra')
+        data['notes']='# Test-only release notes\n';data['files']['unexpected']='0'*64;p.write_bytes(life.encoded(data))
         self.error('RELEASE_FILE_SET_MISMATCH',Catalog,self.root)
 
     def test_traversal_cannot_create_outside_repository(self):
@@ -180,20 +242,20 @@ class Lifecycle(unittest.TestCase):
 
     def test_incoherent_review_cannot_be_declared_a_valid_candidate(self):
         self.freeze()
-        p=self.root/'releases/fixture/1.0.0-rc.1/release.json'
+        p=self.root/'registry/fixture/1.0.0-rc.1.json'
         data=json.loads(p.read_text());data['source']['snapshot']['files']['text.txt']='0'*64
         p.write_bytes(life.encoded(data))
         self.error('RELEASE_REVIEW_INVALID',Catalog,self.root)
 
     def test_data_cannot_claim_adapter_capabilities_in_release_record(self):
-        self.freeze();p=self.root/'releases/fixture/1.0.0-rc.1/release.json'
+        self.freeze();p=self.root/'registry/fixture/1.0.0-rc.1.json'
         data=json.loads(p.read_text());data['renderer']='scope-license-v1';p.write_bytes(life.encoded(data))
         self.error('RELEASE_CONTAINS_ADAPTER_CONFIG',Catalog,self.root)
 
     def test_candidate_cannot_consume_its_final_version_name(self):
         self.approve()
         self.error('CANDIDATE_VERSION_EQUALS_TARGET',life.freeze,self.root,'fixture','1.0.0','notes')
-        self.assertFalse((self.root/'releases/fixture/1.0.0').exists())
+        self.assertFalse((self.root/'registry/fixture/1.0.0.json').exists())
 
     def test_existing_final_version_cannot_be_reused_for_a_new_revision(self):
         self.publish()
@@ -241,38 +303,37 @@ class Lifecycle(unittest.TestCase):
         life.publish(self.root,'fixture','2.0.0-rc.1','2.0.0',Path(self.temp.name)/'delivery-2',decision)
         life.revise(self.root,'fixture','2.0.0','3.0.0')
         self.assertEqual(life.metadata(self.root,'fixture')['base']['version'],'2.0.0')
-        shutil.rmtree(self.root/'releases/fixture/1.0.0')
+        (self.root/'registry/fixture/1.0.0.json').unlink()
         with self.assertRaises(CatalogError) as cm:Catalog(self.root)
         self.assertEqual(cm.exception.code,'AGREEMENT_NOT_AVAILABLE')
-        self.assertIn('releases/fixture/2.0.0/release.json',cm.exception.paths)
+        self.assertTrue(set(cm.exception.paths)&{'registry/fixture/2.0.0.json','registry/fixture/2.0.0-rc.1.json'})
 
-    def test_fixed_revision_base_digest_is_resolved_not_only_shape_checked(self):
+    def test_fixed_revision_cannot_rewrite_committed_review(self):
         self.publish();life.revise(self.root,'fixture','1.0.0','2.0.0')
         self.approve();life.freeze(self.root,'fixture','2.0.0-rc.1','Version 2 notes')
-        folder=self.root/'releases/fixture/2.0.0-rc.1'
-        metadata=json.loads((folder/'release.json').read_bytes())
-        review=json.loads((folder/'review.json').read_bytes())
+        path=self.root/'registry/fixture/2.0.0-rc.1.json'
+        metadata=json.loads(path.read_bytes())
         snapshot=metadata['source']['snapshot']
         snapshot['agreement']['base']['sha256']='0'*64
         snapshot_sha=sha256(life.encoded(snapshot))
         metadata['source']['source_sha256']=snapshot_sha
-        review.update(source_snapshot=snapshot,source_sha256=snapshot_sha)
-        review_bytes=life.encoded(review)
-        (folder/'review.json').write_bytes(review_bytes)
-        metadata['files']['review.json']=sha256(review_bytes)
-        (folder/'release.json').write_bytes(life.encoded(metadata))
-        self.error('AGREEMENT_PIN_MISMATCH',Catalog,self.root)
+        metadata['review'].update(source_snapshot=snapshot,source_sha256=snapshot_sha)
+        metadata['files']['review.json']=sha256(life.encoded(metadata['review']))
+        path.write_bytes(life.encoded(metadata))
+        self.error('RELEASE_REVIEW_INVALID',Catalog,self.root)
 
     def test_malformed_review_cannot_create_an_unreadable_fixed_candidate(self):
         m=life.metadata(self.root,'fixture')
         m['review']={'decision':'approved','open_issues':[],'source_sha256':life.inspect(self.root,'fixture')['source_sha256']}
         (self.root/'agreements/fixture/agreement.json').write_bytes(life.encoded(m))
         self.error('REVIEW_FORMAT',life.freeze,self.root,'fixture','rc1','notes')
-        self.assertFalse((self.root/'releases/fixture/rc1').exists())
+        self.assertFalse((self.root/'registry/fixture/rc1.json').exists())
 
-    def test_missing_fixed_record_is_reported_instead_of_hidden(self):
-        self.freeze();(self.root/'releases/fixture/1.0.0-rc.1/release.json').unlink()
-        self.error('RELEASE_RECORD_MISSING',Catalog,self.root)
+    def test_registered_git_source_cannot_fall_back_to_working_text(self):
+        self.freeze();path=self.root/'registry/fixture/1.0.0-rc.1.json'
+        data=json.loads(path.read_bytes());data['source']['files']['text.txt']='missing.txt'
+        path.write_bytes(life.encoded(data))
+        with self.assertRaises(CatalogError):Catalog(self.root)
 
     def test_incomplete_agreement_directory_is_reported(self):
         (self.root/'agreements/fixture/agreement.json').unlink()
@@ -296,7 +357,7 @@ class Lifecycle(unittest.TestCase):
             if path==target.resolve():(path/'text.txt').write_bytes(b'Changed after delivery write')
         with patch.object(life,'put_new_tree',side_effect=changed):
             self.error('PUBLICATION_DELIVERY_CHANGED',life.publish,self.root,'fixture','1.0.0-rc.1','1.0.0',target,self.decision())
-        self.assertFalse((self.root/'releases/fixture/1.0.0').exists())
+        self.assertEqual(Catalog(self.root).select('fixture','1.0.0')['status'],'prepared')
 
     def test_existing_destination_is_rejected_without_reading_unrelated_files(self):
         self.freeze();target=(Path(self.temp.name)/'delivery').resolve();target.mkdir()

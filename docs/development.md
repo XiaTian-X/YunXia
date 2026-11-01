@@ -3,24 +3,29 @@
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r tooling/requirements-dev.txt
-make test
 make check
 make build
 make skill-install
 ```
 
-make check只读检查元数据、固定摘要、本地链接及回归测试，不自动刷新期望摘要。make build从协议目录与同一套引擎源码生成dist/skills/yunxia；BUILD.json覆盖所有交付文件，安装前重新校验。安装目标必须位于源码仓库之外，并且不能是源码的上级目录。已有非空目标必须是yunxia Skill，避免误替换源码或无关文件。安装器先备份旧目录，替换失败时恢复；若恢复失败，保留并报告备份位置。
+维护与构建需要可取得登记对象的Git仓库；GitHub发布渠道另需已认证的gh。Python核心使用标准库，完整测试的JSON Schema契约检查使用jsonschema。测试只创建临时Git仓库和模拟发布端，不对真实仓库发布协议。
 
-源码入口为tooling/yunxia.py；核心位于tooling/src/yunxia。common提供严格JSON解析、路径校验、摘要和原子写入；各流程保留自己的错误码及文件权限；catalog读取固定版本，lifecycle负责维护动作，project处理具体项目，adapters包含已测试的规则。Skill指令来源在skills/yunxia；不直接安装指令源码目录，应安装构建产物。构建包包含自己的代码和固定资产，离开源码仓库仍可运行。
+make check检查registry结构、完整来源引用、固定摘要、当前审阅材料、本地链接及回归测试，不自动刷新期望摘要。make build按本次固定输入快照读取Git正文，生成dist/skills/yunxia。BUILD.json覆盖独立包中的文件集合，复制结果须逐项匹配输入；缺少资产、额外文件、符号链接或并发混合输入不能替换前一份构建。
 
-新增同类协议适配使用adapter命令登记完整引用与输出名，并补充真实输入/输出回归。元数据只能选择已实现的scope-license-v1，不能注入可执行脚本；其他工作流需要实现并验证后接入。支持登记不会改变发布状态。
+安装前核对构建包与当前来源。安装目标必须在源码仓库之外，不能是源码的上级目录。已有非空目标必须是yunxia Skill。安装器先备份旧目录，替换失败时恢复；若恢复失败，保留并报告备份位置。包内摘要用于一致性核验，来源信任依靠可信维护仓库或经过外部核验的发布渠道。
+
+源码入口是tooling/yunxia.py。核心位于tooling/src/yunxia：common提供严格JSON解析、路径校验、摘要和原子写入；catalog读取registry及固定资产；Git取材层读取确切提交中的普通blob；lifecycle处理设立、审阅、冻结和维护；发布模块处理意图、交付与完成回执；project处理具体项目；adapters包含已测试的适配规则。历史工具不会被执行。
+
+Skill指令来源在skills/yunxia，应安装构建包，不直接安装指令源码目录。构建包包含引擎、登记快照和固定正文，离开源码仓库且没有Git或网络仍可运行。离线目录反映构建时状态，不宣称已获知后来发生的推荐或撤回变化。
+
+新增同类协议适配，先确认已实现的scope-license-v1适合其要求，再登记完整引用和输出名，并补充真实输入/输出回归：
 
 ```bash
 python3 -B tooling/yunxia.py adapter --agreement AGREEMENT --version VERSION --output-name LICENSE.example-1.txt
 ```
 
-测试在临时目录按当前格式创建虚构协议和项目，覆盖正常流程、边界和故障恢复，不作为实际协议发布。旧目录读取器、旧资产登记工具与样本已移除。项目采用统一使用状态格式3和三字段协议引用。完整测试中的JSON Schema契约检查使用jsonschema，运行引擎本身不依赖它。
+元数据不能注入可执行代码；其他工作流需实现和验证后接入。登记支持不会改变发布状态。现有项目仍使用状态格式3和三字段采用引用，迁移历史存储不重写采用记录。
 
-构建产物、环境、缓存、维护锁、项目私有状态和常见凭证由.gitignore排除。发布包放在仓库外；内部证据和密钥不自动进入公开材料。
+测试夹具按当前格式生成真实Git对象。覆盖固定来源、审阅失效、版本更新、发布中断/重试、离线包完整性、多单元采用及项目事务恢复。敏感材料、原始备份、环境、缓存、发布执行临时数据、构建产物和检查报告由.gitignore排除。
 
-维护命令异常中断留下锁时，可用`python3 -B tooling/yunxia.py recover-maintenance`回收不存在进程的锁；活跃或格式损坏的锁不会被自动删除。
+维护命令异常中断留下锁时，使用`python3 -B tooling/yunxia.py recover-maintenance`回收不存在进程的锁。活跃或格式损坏的锁不会自动删除。发布流程用相同输入核验重试；项目材料写入中断则按[状态与事务恢复](../skills/yunxia/references/recovery.md)处理，两者不能混用。

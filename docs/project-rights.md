@@ -4,7 +4,7 @@
 
 [来源索引](provenance.json)保留实际观察到的 AI 制作事件、原始证据及未知事实；重构不新建许可采用事件。历史记录中的路径和编号通过完整备份定位。
 
-当前工具核心以 Python 标准库实现；JSON Schema 契约测试依赖 jsonschema，开发检查使用 tooling/requirements-dev.txt。源码仓库和安装 Skill 不附带第三方解释器或 jsonschema 实现。
+当前工具核心以 Python 标准库实现；JSON Schema 契约测试依赖 jsonschema，开发检查使用 tooling/requirements-dev.txt。维护和构建调用系统Git，GitHub发布渠道调用系统gh；离线采用不需要这两者。源码仓库和安装Skill不附带第三方解释器、Git、gh或jsonschema实现。
 
 官方资料和其他许可的引用用于研究，不意味着其全文按本协议授权。协议文本原有逐段来源与权限未被这次整理认定为已经清理。私人合同、账户信息和完整提示词不自动进入公开材料。
 
