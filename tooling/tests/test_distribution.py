@@ -15,18 +15,31 @@ from yunxia import distribution as d
 from yunxia.catalog import Catalog
 from yunxia.common import CatalogError, canonical_sha256, json_bytes, sha256
 from yunxia import cli, lifecycle
-from support import copy_catalog
+from support import copy_tool, git_commit
 
 
 class Distribution(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.base=Path(self.temp.name).resolve();self.root=copy_catalog(self.base/'repo')
-        for folder in ('skills','tooling/src'):
-            shutil.copytree(ROOT/folder,self.root/folder,dirs_exist_ok=True)
+        self.base=Path(self.temp.name).resolve();self.root=copy_tool(self.base/'repo')
+        self.protocol=self.root/'repositories/Fixture-Agreements'
 
     def old_skill_marker(self,target):
         (target/'SKILL.md').write_text('---\nname: yunxia\ndescription: Old test installation\n---\n')
+
+    def test_empty_catalog_bundle_is_discoverable_without_source_repository(self):
+        (self.root/'sources.lock.json').write_bytes(json_bytes({'format_version':1,'sources':[]}))
+        (self.root/'tooling/src/yunxia/adapters/support.json').write_bytes(json_bytes({'format_version':1,'supported':[]}))
+        d.build(self.root)
+        package=self.base/'standalone-empty'
+        shutil.copytree(self.root/'dist/skills/yunxia',package)
+        shutil.rmtree(self.root)
+        env=dict(os.environ,PATH='')
+        env.pop('YUNXIA_CATALOG_ROOT',None);env.pop('YUNXIA_ADAPTERS_PATH',None)
+        result=subprocess.run([sys.executable,'-B',str(package/'scripts/yunxia.py'),'project','catalog'],
+                              cwd=self.base,capture_output=True,text=True,env=env)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertEqual(json.loads(result.stdout)['versions'],[])
 
     def test_build_is_reproducible_and_does_not_edit_source(self):
         before=d.source_signature(self.root)
@@ -42,7 +55,7 @@ class Distribution(unittest.TestCase):
         env=dict(os.environ,PATH='');env.pop('YUNXIA_CATALOG_ROOT',None)
         p=subprocess.run([sys.executable,'-B',str(package/'scripts/yunxia.py'),'project','catalog'],cwd=self.base,capture_output=True,text=True,env=env)
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)
-        self.assertEqual(len(json.loads(p.stdout)['versions']),len(Catalog(ROOT).entries))
+        self.assertEqual(len(json.loads(p.stdout)['versions']),3)
         self.assertFalse((package/'assets/agreements').exists())
         self.assertFalse((package/'history').exists())
         self.assertFalse((package/'scripts/yunxia/adapters/support.json').exists())
@@ -54,12 +67,14 @@ class Distribution(unittest.TestCase):
         with self.assertRaises(CatalogError) as cm:d.validate(p)
         self.assertEqual(cm.exception.code,'DISTRIBUTION_HASH_MISMATCH')
 
-    def test_install_preserves_previous_tree_and_matches_build(self):
+    def test_install_discards_completed_transaction_and_matches_build(self):
         d.build(self.root)
         target=self.base/'skills/yunxia';target.mkdir(parents=True);(target/'old.txt').write_text('original installation')
         self.old_skill_marker(target)
         result=d.install(self.root,target,True)
-        self.assertEqual((Path(result['previous_install_backup'])/'old.txt').read_text(),'original installation')
+        self.assertTrue(result['transaction_cleaned'])
+        self.assertFalse((self.base/'skill-backups').exists())
+        self.assertEqual(list(target.parent.glob('.yunxia-install-*')), [])
         self.assertEqual(d.inventory(target),d.inventory(self.root/'dist/skills/yunxia'))
 
     def test_stale_or_tampered_build_cannot_replace_installation(self):
@@ -80,6 +95,33 @@ class Distribution(unittest.TestCase):
         with patch.object(Path,'rename',fail),self.assertRaises(OSError):d.install(self.root,target,True)
         self.assertEqual((target/'keep').read_text(),'keep')
 
+    def test_interrupt_after_moving_old_install_restores_original(self):
+        d.build(self.root);target=self.base/'skills/yunxia';target.mkdir(parents=True)
+        self.old_skill_marker(target);(target/'keep').write_bytes(b'original installation')
+        real=Path.rename
+        def interrupt_after_effect(path,to):
+            result=real(path,to)
+            if path==target and Path(to).name=='previous':raise KeyboardInterrupt()
+            return result
+        with patch.object(Path,'rename',interrupt_after_effect),self.assertRaises(KeyboardInterrupt):
+            d.install(self.root,target,True)
+        self.assertEqual((target/'keep').read_bytes(),b'original installation')
+        self.assertEqual(list(target.parent.glob('.yunxia-install-*')),[])
+
+    def test_interrupt_after_install_activation_restores_original(self):
+        d.build(self.root);target=self.base/'skills/yunxia';target.mkdir(parents=True)
+        self.old_skill_marker(target);(target/'keep').write_bytes(b'original installation')
+        real=Path.rename
+        def interrupt_after_effect(path,to):
+            result=real(path,to)
+            if path.name=='next' and Path(to)==target:raise KeyboardInterrupt()
+            return result
+        with patch.object(Path,'rename',interrupt_after_effect),self.assertRaises(CatalogError) as caught:
+            d.install(self.root,target,True)
+        self.assertEqual(caught.exception.code,'INSTALL_VERIFICATION_FAILED')
+        self.assertEqual((target/'keep').read_bytes(),b'original installation')
+        self.assertTrue(Path(caught.exception.paths[0]).is_dir())
+
     def test_post_install_validation_failure_restores_old_tree(self):
         d.build(self.root);target=self.base/'skills/yunxia';target.mkdir(parents=True);(target/'keep').write_text('keep')
         self.old_skill_marker(target)
@@ -92,19 +134,72 @@ class Distribution(unittest.TestCase):
         self.assertEqual((target/'keep').read_text(),'keep')
         self.assertTrue(Path(cm.exception.paths[0]).exists())
 
+    def test_install_restore_failure_keeps_original_transaction_tree(self):
+        d.build(self.root);target=self.base/'skills/yunxia';target.mkdir(parents=True)
+        self.old_skill_marker(target);(target/'keep').write_text('original')
+        real=Path.rename
+        def fail(path,to):
+            if path.name in ('next','previous') and '.yunxia-install-' in path.parent.name:
+                raise OSError('activation and restoration fail')
+            return real(path,to)
+        with patch.object(Path,'rename',fail),self.assertRaises(CatalogError) as caught:
+            d.install(self.root,target,True)
+        self.assertEqual(caught.exception.code,'INSTALL_RECOVERY_REQUIRED')
+        previous=Path(caught.exception.paths[0])
+        self.assertEqual((previous/'keep').read_text(),'original')
+        self.assertEqual(json.loads((previous.parent/'transaction.json').read_text())['destination'],str(target))
+        self.assertFalse((self.base/'skill-backups').exists())
+
+    def test_process_interruption_preserves_installation_recovery_materials(self):
+        d.build(self.root)
+        script="""
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from yunxia import distribution
+original = Path.rename
+def interrupted(path, target):
+    result = original(path, target)
+    if (sys.argv[4] == 'previous' and Path(target).name == 'previous') or (sys.argv[4] == 'activated' and path.name == 'next'):
+        print('interrupted', flush=True)
+        sys.stdin.read()
+    return result
+Path.rename = interrupted
+distribution.install(Path(sys.argv[2]), Path(sys.argv[3]), True)
+"""
+        for phase in ('previous','activated'):
+            with self.subTest(phase=phase):
+                target=self.base/phase/'yunxia';target.mkdir(parents=True)
+                self.old_skill_marker(target);(target/'keep').write_bytes(b'original private installation')
+                process=subprocess.Popen([sys.executable,'-B','-c',script,str(ROOT/'tooling/src'),str(self.root),str(target),phase],
+                    stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+                try:
+                    self.assertEqual(process.stdout.readline().strip(),'interrupted')
+                    process.kill();process.communicate(timeout=10)
+                    transactions=list(target.parent.glob('.yunxia-install-*'))
+                    self.assertEqual(len(transactions),1)
+                    work=transactions[0]
+                    self.assertEqual((work/'previous/keep').read_bytes(),b'original private installation')
+                    self.assertEqual(json.loads((work/'transaction.json').read_text())['destination'],str(target))
+                    self.assertEqual(target.exists(),phase=='activated')
+                    self.assertFalse((self.base/'skill-backups').exists())
+                finally:
+                    if process.poll() is None:process.kill()
+                    process.communicate(timeout=10)
+
     def test_failed_install_quarantine_error_reports_retained_backup_and_target(self):
         d.build(self.root)
         target=self.base/'skills/yunxia';target.mkdir(parents=True)
         (target/'keep').write_text('original installation');self.old_skill_marker(target)
         original=d.inventory(target)
-        real_validate=d.validate;real_tempfile=d.tempfile.mkdtemp
+        real_validate=d.validate;real_rename=Path.rename
         def fail_validation(path):
             if path==target:raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
             return real_validate(path)
-        def fail_quarantine(*args,**kwargs):
-            if kwargs.get('prefix')=='yunxia-failed-':raise OSError('Cannot create quarantine directory')
-            return real_tempfile(*args,**kwargs)
-        with patch.object(d,'validate',side_effect=fail_validation),patch.object(d.tempfile,'mkdtemp',side_effect=fail_quarantine):
+        def fail_quarantine(path,target_path):
+            if Path(target_path).name=='failed':raise OSError('Cannot quarantine failed installation')
+            return real_rename(path,target_path)
+        with patch.object(d,'validate',side_effect=fail_validation),patch.object(Path,'rename',fail_quarantine):
             with self.assertRaises(CatalogError) as cm:d.install(self.root,target,True)
         self.assertEqual(cm.exception.code,'INSTALL_RECOVERY_REQUIRED')
         self.assertEqual(cm.exception.paths[1],str(target))
@@ -113,17 +208,18 @@ class Distribution(unittest.TestCase):
 
     def test_first_install_quarantine_error_reports_target_without_fictional_backup(self):
         d.build(self.root);target=self.base/'skills/yunxia'
-        real_validate=d.validate;real_tempfile=d.tempfile.mkdtemp
+        real_validate=d.validate;real_rename=Path.rename
         def fail_validation(path):
             if path==target:raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
             return real_validate(path)
-        def fail_quarantine(*args,**kwargs):
-            if kwargs.get('prefix')=='yunxia-failed-':raise OSError('Cannot create quarantine directory')
-            return real_tempfile(*args,**kwargs)
-        with patch.object(d,'validate',side_effect=fail_validation),patch.object(d.tempfile,'mkdtemp',side_effect=fail_quarantine):
+        def fail_quarantine(path,target_path):
+            if Path(target_path).name=='failed':raise OSError('Cannot quarantine failed installation')
+            return real_rename(path,target_path)
+        with patch.object(d,'validate',side_effect=fail_validation),patch.object(Path,'rename',fail_quarantine):
             with self.assertRaises(CatalogError) as cm:d.install(self.root,target)
         self.assertEqual(cm.exception.code,'INSTALL_RECOVERY_REQUIRED')
-        self.assertEqual(cm.exception.paths,[str(target)])
+        self.assertEqual(cm.exception.paths[0],str(target))
+        self.assertTrue(Path(cm.exception.paths[1]).is_dir())
         self.assertTrue((target/'BUILD.json').is_file())
 
     def test_build_rollback_failure_preserves_unique_backup(self):
@@ -138,9 +234,36 @@ class Distribution(unittest.TestCase):
         self.assertEqual(cm.exception.code,'BUILD_RECOVERY_REQUIRED')
         self.assertEqual(d.inventory(Path(cm.exception.paths[0])),old)
 
+    def test_interrupt_after_moving_old_build_restores_original(self):
+        d.build(self.root);target=self.root/'dist/skills/yunxia';original=d.inventory(target)
+        path=self.root/'skills/yunxia/SKILL.md';path.write_bytes(path.read_bytes()+b'\nnew draft\n')
+        real=Path.rename
+        def interrupt_after_effect(path,to):
+            result=real(path,to)
+            if path==target and Path(to).name=='previous':raise KeyboardInterrupt()
+            return result
+        with patch.object(Path,'rename',interrupt_after_effect),self.assertRaises(KeyboardInterrupt):d.build(self.root)
+        self.assertEqual(d.inventory(target),original)
+
+    def test_interrupt_after_build_activation_retains_previous_tree(self):
+        d.build(self.root);target=self.root/'dist/skills/yunxia';original=d.inventory(target)
+        path=self.root/'skills/yunxia/SKILL.md';path.write_bytes(path.read_bytes()+b'\nnew draft\n')
+        real=Path.rename
+        def interrupt_after_effect(path,to):
+            result=real(path,to)
+            if path.name=='next' and Path(to)==target:raise KeyboardInterrupt()
+            return result
+        with patch.object(Path,'rename',interrupt_after_effect),self.assertRaises(CatalogError) as caught:d.build(self.root)
+        self.assertEqual(caught.exception.code,'BUILD_RECOVERY_REQUIRED')
+        self.assertEqual(d.inventory(Path(caught.exception.paths[0])),original)
+        self.assertTrue(target.exists())
+
     def test_deleting_supported_snapshot_cannot_silently_prune_installation(self):
         d.build(self.root);before=d.inventory(self.root/'dist/skills/yunxia')
-        (self.root/'registry/yunxia-license/0.9.2-draft.1.json').unlink()
+        (self.protocol/'registry/yunxia-license/0.9.2-draft.1.json').unlink()
+        commit=git_commit(self.protocol,'Delete a fixed registry record')
+        lock=self.root/'sources.lock.json';data=json.loads(lock.read_text())
+        data['sources'][0]['commit']=commit;lock.write_bytes(json_bytes(data))
         with self.assertRaises(CatalogError):d.build(self.root)
         self.assertEqual(d.inventory(self.root/'dist/skills/yunxia'),before)
 
@@ -181,9 +304,10 @@ class Distribution(unittest.TestCase):
         real=d.write_files
         def changed(destination,files):
             real(destination,files)
-            path=self.root/'registry/yunxia-license/0.9.3-draft.2.json'
-            data=json.loads(path.read_text());data['version']='test-added-snapshot'
-            (path.parent/'test-added-snapshot.json').write_bytes(json_bytes(data))
+            path=self.protocol/'README.md';path.write_text('Concurrent protocol catalog documentation update')
+            commit=git_commit(self.protocol,'Concurrent directory snapshot')
+            lock=self.root/'sources.lock.json';data=json.loads(lock.read_text())
+            data['sources'][0]['commit']=commit;lock.write_bytes(json_bytes(data))
         with patch.object(d,'write_files',side_effect=changed),self.assertRaises(CatalogError) as cm:
             d.build(self.root)
         self.assertEqual(cm.exception.code,'BUILD_SOURCE_CHANGED')

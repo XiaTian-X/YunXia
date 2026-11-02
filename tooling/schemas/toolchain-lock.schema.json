@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pinned YunXia maintenance tool",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format_version",
+    "repository",
+    "commit"
+  ],
+  "properties": {
+    "format_version": {
+      "const": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    }
+  }
+}

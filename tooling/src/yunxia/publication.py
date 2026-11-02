@@ -153,6 +153,16 @@ def _committed_registry(root, record, backend):
     selected=catalog.select(record['agreement_id'],record['version'])
     if _record(selected)!=record:raise CatalogError('PUBLICATION_RECORD_CONFLICT',[selected['_manifest']])
     pending=[selected];seen=set();families=set();contents={};tags={};untagged_sources=set()
+    control_paths=['repository.json']
+    if catalog.migration is not None:
+        control_paths.append(catalog.repository['migration'])
+        untagged_sources.add(catalog.migration['retained_history']['commit'])
+    for rel in control_paths:
+        content=catalog.inputs[rel]
+        try:committed=gitstore.read_blob(root,commit,rel)
+        except CatalogError:raise CatalogError('PUBLICATION_REGISTRY_NOT_COMMITTED',[rel]) from None
+        if committed!=content:raise CatalogError('PUBLICATION_REGISTRY_NOT_COMMITTED',[rel])
+        contents[rel]=content
     while pending:
         entry=pending.pop();rel=entry['_manifest']
         if rel in seen:continue

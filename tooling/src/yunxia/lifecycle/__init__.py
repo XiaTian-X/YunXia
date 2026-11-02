@@ -5,7 +5,7 @@ from pathlib import Path
 import os
 import shutil
 import tempfile
-from ..catalog import Catalog, reference, validate_reference, validate_review_record, validate_review_dependencies, validate_committed_review_files
+from ..catalog import Catalog, reference, validate_reference, validate_review_record, validate_review_dependencies, validate_committed_review_files, require_repository
 from .. import gitstore
 from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded, atomic_write, atomic_create, canonical_sha256, parse_json, exclusive_guard
 
@@ -16,6 +16,7 @@ def write(path, content):
 
 @contextmanager
 def locked(root):
+    gitstore.require_root(root)
     p = safe_path(root, '.yunxia-maintenance.lock')
     with exclusive_guard(safe_path(root, '.yunxia-maintenance.guard'), code='MAINTENANCE_LOCKED'):
         try:
@@ -29,6 +30,7 @@ def locked(root):
 
 
 def recover_lock(root):
+    gitstore.require_root(root)
     p=safe_path(root,'.yunxia-maintenance.lock')
     with exclusive_guard(safe_path(root, '.yunxia-maintenance.guard'), code='MAINTENANCE_LOCKED'):
         if not p.exists():return {'lock_recovered':False}
@@ -48,6 +50,7 @@ def valid_id(value):
 
 
 def folder(root, aid):
+    require_repository(root)
     return safe_path(root, 'agreements/' + valid_id(aid))
 
 
@@ -67,6 +70,18 @@ def metadata(root, aid):
             if m[key]['agreement_id'] != aid:
                 raise CatalogError('AGREEMENT_REFERENCE_MISMATCH', [key])
     validate_review_dependencies(m.get('review_dependencies', []))
+    history=m.get('name_history', [])
+    if not isinstance(history,list):raise CatalogError('NAME_HISTORY_INVALID')
+    previous=None
+    for entry in history:
+        if (not isinstance(entry,dict) or set(entry)!={'from','to','reason','date'}
+                or not all(isinstance(value,str) and value.strip() for value in entry.values())
+                or entry['from']==entry['to'] or previous is not None and entry['from']!=previous):
+            raise CatalogError('NAME_HISTORY_INVALID')
+        try:date.fromisoformat(entry['date'])
+        except ValueError:raise CatalogError('NAME_HISTORY_INVALID') from None
+        previous=entry['to']
+    if history and previous!=m['name']:raise CatalogError('NAME_HISTORY_INVALID')
     if m['review'] is not None:
         validate_review_record(m['review'])
     return m
@@ -203,6 +218,7 @@ def tree_matches(directory, files):
 
 
 def record_path(root, aid, version):
+    require_repository(root)
     return safe_path(root, f'registry/{valid_id(aid)}/{valid_id(version)}.json')
 
 
@@ -307,6 +323,21 @@ def revise(root, aid, base, target):
     m.update(target_version=target,stage='draft',review=None,base=reference(entry))
     write(folder(root,aid)/'agreement.json',encoded(m))
     return {'target_version':target,'base':reference(entry),'text_unchanged':True}
+
+
+def rename(root, aid, name, reason):
+    if not all(isinstance(value,str) and value.strip() for value in (name,reason)):
+        raise CatalogError('RENAME_INPUT_REQUIRED')
+    m=metadata(root,aid)
+    if m['maintenance']!='active':raise CatalogError('MAINTENANCE_INACTIVE')
+    previous=m['name']
+    if previous==name:return {'renamed':aid,'name':name,'changed':False}
+    m.setdefault('name_history',[]).append({'from':previous,'to':name,'reason':reason,
+                                          'date':date.today().isoformat()})
+    m.update(name=name,stage='draft',review=None)
+    write(folder(root,aid)/'agreement.json',encoded(m))
+    return {'renamed':aid,'name':name,'previous_name':previous,'changed':True,
+            'text_unchanged':True,'fixed_versions_preserved':True,'review_required':True}
 
 
 def recommend(root, aid, version, reason):

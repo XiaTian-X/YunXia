@@ -113,3 +113,6 @@ secrets*.toml
 # Maintenance locks and staging directories
 .yunxia-*
 .new-agreement-*/
+
+# Independent protocol working repositories (not parent Git content)
+/repositories/

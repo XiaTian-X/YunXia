@@ -2,6 +2,7 @@
 import os
 import re
 import subprocess
+from pathlib import Path
 from .common import CatalogError, valid_relative_path, sha256
 
 OID = re.compile(r'(?:[0-9a-f]{40}|[0-9a-f]{64})\Z')
@@ -17,6 +18,17 @@ def run(root, args, check=True):
     if check and result.returncode:
         raise CatalogError('GIT_OPERATION_FAILED', [args[0]])
     return result
+
+
+def require_root(root):
+    """Never let a missing nested repository fall back to its containing Git tree."""
+    root = Path(root)
+    if not root.is_dir() or root.is_symlink():
+        raise CatalogError('GIT_REPOSITORY_ROOT_REQUIRED', [str(root)])
+    result = run(root, ['rev-parse', '--show-toplevel'], False)
+    if result.returncode or Path(result.stdout.decode().strip()).resolve() != root.resolve():
+        raise CatalogError('GIT_REPOSITORY_ROOT_REQUIRED', [str(root)])
+    return root
 
 
 def head(root):

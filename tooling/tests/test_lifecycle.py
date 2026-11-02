@@ -12,6 +12,7 @@ sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia import lifecycle as life
 from yunxia.catalog import Catalog, reference
 from yunxia.common import CatalogError, sha256
+from support import write_repository, copy_catalog, copy_tool
 
 
 class Lifecycle(unittest.TestCase):
@@ -21,6 +22,7 @@ class Lifecycle(unittest.TestCase):
         subprocess.run(['git','init','-q',str(self.root)],check=True)
         for key,value in (('user.name','Fixture'),('user.email','fixture@example.test'),('commit.gpgsign','false'),('core.hooksPath','/dev/null')):
             subprocess.run(['git','-C',str(self.root),'config',key,value],check=True)
+        write_repository(self.root)
         life.create(self.root,'fixture','Fixture','Only a test protocol',b'Test terms version 1.0.0\n','1.0.0')
 
     def commit(self):
@@ -236,9 +238,21 @@ class Lifecycle(unittest.TestCase):
 
     def test_adapter_registration_connects_new_protocol_without_releasing_it(self):
         self.freeze()
-        p=subprocess.run([sys.executable,'-B',str(ROOT/'tooling/yunxia.py'),'adapter','--repository',str(self.root),'--agreement','fixture','--version','1.0.0-rc.1','--output-name','LICENSE.fixture-1.txt'],capture_output=True,text=True)
+        from yunxia.common import json_bytes
+        from yunxia.sources import load_catalog
+        tool=copy_tool(Path(self.temp.name)/'tool')
+        self.commit()
+        remote='https://example.test/lifecycle-fixture.git'
+        subprocess.run(['git','-C',str(self.root),'remote','add','origin',remote],check=True)
+        child=tool/'repositories/Lifecycle-Fixture'
+        subprocess.run(['git','clone','-q',str(self.root),str(child)],check=True)
+        subprocess.run(['git','-C',str(child),'remote','set-url','origin',remote],check=True)
+        source={'id':'Lifecycle-Fixture','repository':remote,'commit':subprocess.check_output(['git','-C',str(child),'rev-parse','HEAD'],text=True).strip(),'agreements':['fixture']}
+        lock=json.loads((tool/'sources.lock.json').read_text());lock['sources'].append(source)
+        (tool/'sources.lock.json').write_bytes(json_bytes(lock))
+        p=subprocess.run([sys.executable,'-B',str(ROOT/'tooling/yunxia.py'),'adapter','--repository',str(tool),'--agreement','fixture','--version','1.0.0-rc.1','--output-name','LICENSE.fixture-1.txt'],capture_output=True,text=True)
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)
-        entry=Catalog(self.root).select('fixture','1.0.0-rc.1')
+        entry=load_catalog(tool).select('fixture','1.0.0-rc.1')
         self.assertIn('adopt',entry['capabilities'])
         self.assertEqual(entry['status'],'candidate')
 
@@ -468,7 +482,7 @@ with lifecycle.locked(Path(sys.argv[1])):
             self.error('FIXED_VERSION_EXISTS',life.publish,self.root,'fixture','1.0.0-rc.1','1.0.0',target,self.decision())
 
     def test_fixed_drafts_resolve_by_current_reference(self):
-        c=Catalog(ROOT)
+        c=Catalog(copy_catalog(Path(self.temp.name)/'drafts'))
         for e in c.entries:
             ref=reference(e)
             self.assertEqual(set(ref),{'agreement_id','version','sha256'})

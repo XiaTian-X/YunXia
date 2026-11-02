@@ -126,6 +126,7 @@ with exclusive_guard(Path(sys.argv[1])):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root/'catalog.json').write_text('{"catalog_version":1,"agreements":["../outside"]}')
+            subprocess.run(['git', 'init', '-q', str(root)], check=True)
             with self.assertRaises(CatalogError) as cm: Catalog(root)
             self.assertEqual(cm.exception.code, 'UNSUPPORTED_CATALOG_FORMAT')
 

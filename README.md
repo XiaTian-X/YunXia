@@ -5,7 +5,7 @@
 <h1 align="center">允夏 YǔnXià</h1>
 
 <p align="center">
-  <strong>维护允夏系列许可协议，让协议的形成、发布和项目采用都有清晰依据。</strong>
+  <strong>管理协议全周期，通过 Skill 帮助具体项目采用确切协议。</strong>
 </p>
 
 <p align="center">
@@ -18,149 +18,117 @@
 
 ---
 
-允夏（拼音：yǔn xià）管理每个具体许可协议从设立、起草、审阅到发布、更新和停止维护的全过程，并通过 **yunxia Skill** 帮助具体项目采用指定协议及确切版本。
+允夏（拼音：yǔn xià）提供协议从立项、起草、审阅到发布、更新和停止维护的管理工具，并通过 **yunxia Skill** 帮助具体项目采用指定协议及确切版本。
 
-协议维护与项目采用分别进行：维护者负责协议文本及版本，项目使用者确认实际采用主体和内容范围，工具负责整理事实、生成材料和检查一致性。
+本仓库开发工具、数据契约、适配器和 Skill。正文、审阅、版本登记及发布事实由独立的 [YunXia-Agreements 协议仓库](https://github.com/XiaTian-X/YunXia-Agreements) 维护；两个仓库分别提交和推送，协议变化不与工具代码变化混在同一条日常提交历史中。
 
 ## 当前状态
 
 | 项目 | 状态 |
 | --- | --- |
-| 已收录协议 | [允夏许可证](agreements/yunxia-license/README.md) |
-| 当前工作正文 | [0.9.3 审阅草案](agreements/yunxia-license/text.txt) |
-| 正式发布版本 | 暂无 |
-| 维护工具与 Skill | 0.5.2 |
-| 项目采用状态格式 | 仅支持格式 3 |
-| 运行环境 | Python 3.11 或以上；写入与恢复需要 macOS/Linux 等支持 POSIX 文件锁的系统 |
+| 维护工具与 Skill | 0.6.0 |
+| 协议仓库默认位置 | `repositories/YunXia-Agreements/`，父仓整体忽略 |
+| 构建协议来源 | [sources.lock.json](sources.lock.json) 固定仓库与完整目录提交 |
+| 已收录协议 | 允夏许可证，当前工作正文为 0.9.3 审阅草案 |
+| 固定历史 | 三份 imported-draft，原登记及正文摘要保持 |
+| 正式协议发布 | 暂无 |
+| 项目采用状态 | 格式 3，使用协议 ID、版本、SHA-256 三字段引用 |
+| 运行环境 | Python 3.11+；写入与恢复需要支持 POSIX 文件锁的系统 |
 
-`registry/` 登记三份标记为 `imported-draft` 的历史草案，按完整 Git 提交与文件路径读取固定正文。其中 `0.9.3-draft.2` 对应当前命名草案；原版本号、正文摘要和草案身份保持不变，迁移没有创建正式发布。工作树不再保存重复的历版正文目录。
+协议仓库的 registry 是固定版本与发布事实的唯一维护位置。历史正文从确切 Git 对象读取，迁移保留旧引用所需的固定历史来源分支，不在当前工作树复制历版正文。工具更新不会改变项目已采用的协议。
 
 ## 项目能力
 
 ### 协议全周期维护
 
-- **设立与起草**：建立稳定协议 ID，说明设立目的、适用对象和设计取舍。
-- **审阅与冻结**：记录审阅结论，将正文、说明、场景和模板等材料绑定到确切摘要，形成固定候选。
-- **发布与更新**：核对发布文件，保留版本说明与发布记录，从指定基线开始后续修订。
-- **推荐与维护状态**：分别管理推荐版本、暂停和停止维护，保留已有固定版本。
+Agent 可以从初步目标开始梳理立项、比较已有协议、起草条款和典型场景，依据实际决定修改并审阅材料。工具将审阅绑定到确切文件集合，形成固定候选，再按发布决定完成本地交付或 GitHub Release、附件核验和回执同步。
 
-工作内容与历史正文由 Git 保存；registry 记录版本身份、取材提交、正文摘要、审阅依据和发布事实。tag 是可核对的定位入口，完整提交与摘要固定实际内容。已发布正文保持固定，新的条款变化进入新版本；工具更新和推荐项变化不会自动改变项目已经采用的协议。
+版本更新从明确基线开始；推荐、暂停、停止维护和撤回分别保存决定，旧固定版本仍可定位。发布中断根据已有结果恢复，不删除已公开事实伪装回滚。检查、提交、工具安装和发布是不同阶段，Agent 在已有授权范围内持续完成，不反复确认已决定的事项。
 
-发布流程先登记固定内容与交付意图，再交付并核对，最后保存完成回执；中断后使用相同输入核验重试。工具支持本地目录交付及 GitHub Release 渠道，测试使用隔离仓库和模拟远端，不创建本仓库的正式发布。
+从 [Agent 工作入口](AGENTS.md) 和 [任务导航](docs/README.md) 开始；协议实质原则和专属材料随协议仓库维护，通用操作流程只在本仓库保存。
 
 ### 具体项目采用
 
-yunxia Skill 调用独立适配引擎，完成以下工作：
+`yunxia` Skill 只负责目标项目：选择确切协议，扫描内容和已有许可，复用已确认事实并补问缺口，按原字节提供协议正文，生成范围声明及必要配套材料，最后增量核验实际目录或 ZIP 交付物。
 
-1. 明确指定协议及确切版本，检查工具支持程度。
-2. 扫描项目内容、已有许可、第三方声明和交付范围。
-3. 复用已有确认，集中补问影响采用的缺失事实。
-4. 保持协议正文原字节，生成范围声明及必要配套材料。
-5. 再次运行时核对变化，检查实际目录或 ZIP 交付物。
+同一项目可以按代码、文档等范围建立不同采用单元。主体、权限和范围由真实事实确认，观察到的署名、Git 身份或模型调用不自动证明权属。结构通过不等于权属或许可兼容性认证。
 
-同一项目可以按代码、文档等内容范围建立不同采用单元。各单元分别保存协议绑定和确认记录，共享第三方材料可以保留原声明；历史回答不会占用已经移出当前范围的文件。
-
-目前已实现 `scope-license-v1` 适配工作流。其他工作流需要补充实现与测试；收录一份协议不等于已经支持自动采用。
+目前支持经过逐版本登记和测试的 `scope-license-v1` 工作流；收录一份协议不表示已支持自动生成。安装后的 Skill 携带固定目录和资产，无需网络、Git 或两个源码仓库。
 
 ## 快速开始
 
-在仓库根目录执行以下命令。
-
-### 1. 准备开发环境
+在工具仓库根目录执行：
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r tooling/requirements-dev.txt
+make test
+
+# 显式取得协议仓库并核验 sources.lock 中的固定提交
+python3 -B tooling/yunxia.py source fetch --id YunXia-Agreements
 make check
 ```
 
-Python 引擎使用标准库；维护与构建需要 Git 对象历史，GitHub 发布渠道另需已认证的 `gh`。构建后的 Skill 无需 Git、网络或维护仓库。完整测试中的 JSON Schema 契约检查需要 `jsonschema`，开发依赖已列在上述文件中。
+协议仓库使用独立 `.git` 和远端，不是 submodule。父仓只提交来源锁，不提交 `repositories/` 的任何文件或 gitlink。该目录是协议工作区，不是可以自动删除的缓存。
 
-### 2. 查看协议和检查项目
+查看协议工作信息与固定目录：
 
 ```bash
-# 查看固定版本及适配能力
+python3 -B tooling/yunxia.py agreement --repository repositories/YunXia-Agreements inspect --id yunxia-license
+python3 -B tooling/yunxia.py check --repository repositories/YunXia-Agreements
 python3 -B tooling/yunxia.py project catalog
-
-# 查看协议工作信息与审阅状态
-python3 -B tooling/yunxia.py agreement inspect --id yunxia-license
-
-# 只读扫描目标项目
-python3 -B tooling/yunxia.py project --root /path/to/project scan --read-only
 ```
 
-`catalog` 列出固定版本、状态及适配能力；`inspect` 展示协议工作信息和审阅状态。将 `/path/to/project` 替换为目标项目的绝对路径，只读扫描不会写入采用状态。
+首次获取的协议工作树位于远端默认分支，已有工作树在获取时保持原分支。维护命令操作指定协议仓库，构建则读取来源锁指定的提交，不混入协议工作树的未提交内容。来源更新是显式步骤，不自动跟随 main、latest 或推荐项；详见 [开发指南](docs/development.md)。
 
-完整采用流程及回答格式见 [Skill 工作流](skills/yunxia/references/workflow.md)。
-
-在本仓库通过 Agent 新增、审阅或维护协议，从 [Agent 工作入口](AGENTS.md) 和 [任务导航](docs/README.md) 开始；具体项目采用继续使用 `yunxia` Skill。
-
-### 3. 构建和安装 Skill
+构建并更新本机 Skill：
 
 ```bash
-# 构建独立分发包
 make build
-
-# 构建、备份并更新本机安装
 make skill-install
 ```
 
-构建产物位于 `dist/skills/yunxia/`，包含独立运行所需的代码、版本目录与固定协议资产。目录反映构建时的维护状态，离线运行不会自动获知后来发生的推荐或撤回变化。安装器将其同步到本机 Skill 目录，并先备份已有安装。`skills/yunxia/` 是指令源码目录，安装应使用构建产物。
+构建包位于 `dist/skills/yunxia/`。`skills/yunxia/` 是指令源码，安装使用构建产物。安装切换只暂存当前事务需要的旧目录，成功后清理；不再创建长期安装备份或全仓副本，失败时保留恢复现场。
 
 安装后，可以向 Agent 提出：
 
 > 用 yunxia 检查这个项目，为指定范围采用允夏许可证的确切草案版本，缺少的事实再问我。
 
-选择协议、生成草稿与确认采用是不同步骤。已有确认可以复用，未知事实保持待核；工具升级不会补造授权或自动更换协议。
+选择协议、生成草稿和确认采用分别记录。协议维护按 [完整流程](docs/maintenance.md) 进行，不由项目采用 Skill 创建或发布协议。
 
 ## 目录结构
 
 ```text
 .
-├── AGENTS.md               # 仓库级 Agent 入口与任务导航
-├── agreements/             # 各协议的工作正文、设计、审阅和人工采用指南
-│   └── yunxia-license/
-├── registry/               # 版本与发布登记，历史正文从固定 Git 提交提取
-├── tooling/                # 独立维护与适配引擎
-│   ├── src/yunxia/         # 目录、生命周期、项目工作流及适配器
-│   ├── schemas/            # 数据格式
-│   └── tests/              # 当前格式、边界和故障恢复测试
-├── skills/yunxia/          # Agent 指令与参考文档
-├── docs/                   # 系列规则、维护流程及仓库来源说明
-└── dist/                   # 构建包和检查报告，不提交 Git
+├── AGENTS.md
+├── sources.lock.json            # 固定协议来源
+├── tooling/                     # 管理、适配和构建引擎
+│   ├── src/yunxia/
+│   ├── schemas/
+│   └── tests/
+├── skills/yunxia/               # 项目采用 Skill 指令
+├── docs/                        # 通用流程、架构和开发说明
+├── repositories/                # 父仓忽略的独立协议仓库
+│   └── YunXia-Agreements/
+└── dist/                        # 忽略的构建与检查产物
 ```
 
-协议专属资料随协议维护；可执行能力集中在独立引擎中，Skill 负责对话衔接。registry 只登记历史正文的确切 Git 来源，不执行历史提交中的工具。浅克隆或缺失对象会明确报错，不能回退到工作正文；维护者须保留可取得的完整历史。必要的设计依据、人工场景和来源事实继续保留。
-
-## 常用维护命令
-
-| 命令 | 用途 |
-| --- | --- |
-| `make test` | 运行全部回归测试 |
-| `make check` | 检查目录、元数据、固定摘要、本地链接及测试 |
-| `make agreements-check` | 检查仓库结构和协议数据，不运行全量测试 |
-| `make build` | 构建独立 Skill 分发包 |
-| `make skill-install` | 构建、备份并更新本机 Skill |
-
-按新增、审阅、发布、更新或恢复等目标选择 [维护任务](docs/README.md)，具体命令、输入与完成条件见对应流程。
-
-检查只验证已实现的结构、记录和文件一致性，不自动接受变化后的摘要。环境、缓存、构建产物、项目私有状态和常见凭证由 `.gitignore` 排除；实际交付仍需检查文件范围。
+协议仓库包含 `agreements/`、`registry/`、来源迁移清单和系列原则，以 `toolchain.lock.json` 固定维护工具提交。仓库身份、来源锁、历史取材和分发边界见 [架构说明](docs/architecture.md)。两个仓库可分别克隆；构建前必须具备来源锁所需的完整对象，缺失时明确失败，不回退到当前正文。
 
 ## 文档导航
 
 | 阅读目的 | 文档 |
 | --- | --- |
-| 通过 Agent 维护协议或选择任务流程 | [Agent 工作入口](AGENTS.md) · [任务导航](docs/README.md) |
-| 了解系列定位与维护原则 | [允夏系列原则](docs/principles.md) |
-| 设立、审阅、发布和更新协议 | [协议全周期维护](docs/maintenance.md) |
-| 开发工具、运行测试和安装 | [开发、构建与安装](docs/development.md) |
-| 人工采用当前协议 | [允夏许可证采用指南](agreements/yunxia-license/adoption.md) |
-| 通过 Agent 适配项目 | [Skill 入口](skills/yunxia/SKILL.md) · [工作流](skills/yunxia/references/workflow.md) |
-| 了解状态记录和恢复中断操作 | [状态与事务恢复](skills/yunxia/references/recovery.md) |
-| 查看维护变化 | [变更记录](CHANGELOG.md) |
+| 让 Agent 参与维护或选择任务 | [AGENTS.md](AGENTS.md) · [任务导航](docs/README.md) |
+| 理解两个仓库和固定来源 | [架构与固定来源](docs/architecture.md) |
+| 立项、修改、审阅和发布协议 | [协议全周期维护](docs/maintenance.md) |
+| 提交推送或继续已有任务 | [Git 阶段约定](docs/maintenance.md#git) · [继续维护](docs/maintenance.md#resume) |
+| 开发、更新来源、构建和安装 | [开发指南](docs/development.md) |
+| 阅读具体协议和系列原则 | [协议仓库](https://github.com/XiaTian-X/YunXia-Agreements) |
+| 通过 Agent 适配具体项目 | [Skill 入口](skills/yunxia/SKILL.md) · [项目工作流](skills/yunxia/references/workflow.md) |
+| 恢复项目未完成事务 | [事务恢复](skills/yunxia/references/recovery.md) |
+| 查看工具变化 | [变更记录](CHANGELOG.md) |
 
 ## 仓库自身的许可与来源
 
-本仓库维护许可协议，也包含工具、模板和研究材料。协议的收录、工具安装及技术检查不会自动形成对这些内容的统一授权。
-
-仓库自身的正式采用及完整权属事实仍待确认，具体范围和来源见 [项目说明](docs/project-rights.md)。项目采用时，应依据真实主体、内容范围和第三方许可作出安排；结构检查通过不代表已经完成权属或许可兼容性核验。
+协议收录、工具安装和技术检查不自动形成对本仓库内容的统一授权。仓库自身正式采用及完整权属事实仍待确认，具体范围和来源见 [项目说明](docs/project-rights.md)。私有证据、凭证、环境、缓存、生成物和采用项目状态不进入公开提交。

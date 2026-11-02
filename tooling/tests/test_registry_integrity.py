@@ -39,7 +39,7 @@ class RegistryIntegrity(unittest.TestCase):
         record['files']['text.txt'] = donor['sha256']
         record['source']['files']['text.txt'] = donor['source']['files']['text.txt']
         path.write_bytes(json_bytes(record))
-        support = self.root/'tooling/src/yunxia/adapters/support.json'
+        support = self.root/'adapters.json'
         data = json.loads(support.read_text())
         for row in data['supported']:
             if row['agreement']['version'] == '0.9.2-draft.1':
@@ -88,7 +88,7 @@ class RegistryIntegrity(unittest.TestCase):
     def test_committed_fixed_version_cannot_disappear_with_its_adapter(self):
         git_commit(self.root, 'Initial version identities')
         (self.root/'registry/yunxia-license/0.9.2-draft.1.json').unlink()
-        path = self.root/'tooling/src/yunxia/adapters/support.json'
+        path = self.root/'adapters.json'
         data = json.loads(path.read_text())
         data['supported'] = [row for row in data['supported']
                              if row['agreement']['version'] != '0.9.2-draft.1']
@@ -129,7 +129,7 @@ class RegistryIntegrity(unittest.TestCase):
     def test_shallow_history_is_rejected_even_with_an_empty_current_registry(self):
         for folder in ('registry', 'agreements'):
             shutil.rmtree(self.root/folder)
-        (self.root/'tooling/src/yunxia/adapters/support.json').write_bytes(
+        (self.root/'adapters.json').write_bytes(
             json_bytes({'format_version': 1, 'supported': []}))
         git_commit(self.root, 'Remove all current version records')
         target = Path(self.temp.name)/'shallow'

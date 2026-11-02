@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / 'tooling/yunxia.py'
 sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia.project import workflow as yx
-from yunxia.catalog import Catalog
+from support import supported_catalog as Catalog
 from yunxia import lifecycle
 from support import copy_catalog, add_protocol, approve, publish, git_commit, pin_payload, CURRENT_VERSION
 
@@ -30,7 +30,7 @@ class YunXiaWorkflow(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.catalog_root = copy_catalog(Path(self.temp.name)/'catalog')
         self.ref = yx.reference(Catalog(self.catalog_root).select('yunxia-license', CURRENT_VERSION))
-        environment = patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(self.catalog_root))
+        environment = patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(self.catalog_root), YUNXIA_ADAPTERS_PATH=str(self.catalog_root/"adapters.json"))
         environment.start(); self.addCleanup(environment.stop)
         self.root = Path(self.temp.name) / 'project'
         self.root.mkdir()
@@ -83,7 +83,7 @@ class YunXiaWorkflow(unittest.TestCase):
 
     def cli(self, *args):
         return subprocess.run([sys.executable, '-B', str(SCRIPT), 'project', '--root', str(self.root), *args],
-                              capture_output=True, text=True, env=dict(os.environ, YUNXIA_CATALOG_ROOT=str(self.catalog_root)))
+                              capture_output=True, text=True, env=dict(os.environ, YUNXIA_CATALOG_ROOT=str(self.catalog_root), YUNXIA_ADAPTERS_PATH=str(self.catalog_root/"adapters.json")))
 
     def test_read_only_scan_does_not_create_state(self):
         result = yx.scan(self.root, persist=False)
@@ -575,7 +575,7 @@ class YunXiaWorkflow(unittest.TestCase):
         record = json.loads(path.read_text())
         pin_payload(fake, record, dict(entry['_payload'], **{'text.txt': b'changed'}))
         path.write_bytes(yx.encoded(record))
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.assert_error('AGREEMENT_TEXT_HASH_MISMATCH', self.generate)
 
     def test_generated_file_symlink_does_not_write_outside_project(self):
@@ -648,7 +648,7 @@ class YunXiaWorkflow(unittest.TestCase):
         lifecycle.freeze(fake, 'yunxia-license', '1.0.0-rc.1', 'Fictional release test')
         publish(fake, 'yunxia-license')
         lifecycle.recommend(fake, 'yunxia-license', '1.0.0', 'Fixture recommendation')
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.assertEqual(yx.questions(self.root)['questions'], [])
             self.generate('adopt')
             self.assertTrue(yx.verify(self.root)['structure_valid'])
@@ -667,13 +667,13 @@ class YunXiaWorkflow(unittest.TestCase):
         manifest['sha256'] = yx.digest(body)
         manifest['files']['text.txt'] = manifest['sha256']
         path.write_bytes(yx.encoded(manifest))
-        registry = fake/'tooling/src/yunxia/adapters/support.json'
+        registry = fake/'adapters.json'
         data = json.loads(registry.read_text())
         for row in data['supported']:
             if row['agreement'] == self.ref:
                 row['agreement'] = yx.reference(manifest)
         registry.write_bytes(yx.encoded(data))
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.assert_error('VERSION_IDENTITY_CHANGED', self.generate, 'adopt')
             self.assert_error('VERSION_IDENTITY_CHANGED', yx.verify, self.root)
         self.assertEqual((self.root / yx.STATE).read_bytes(), before)
@@ -738,7 +738,7 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_another_license_uses_catalog_data_without_changing_code(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake)
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             snap = self.scan()
             self.select(ref)
             payload = self.facts(); payload['assets'][0]['disposition'] = 'selected'
@@ -751,7 +751,7 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_unsupported_type_is_inspectable_but_not_generated_as_license(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake, kind='nda', renderer=None)
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.scan(); self.select(ref)
             self.assertEqual(yx.selected(yx.load_state(self.root))['kind'], 'nda')
             self.assert_error('UNSUPPORTED_AGREEMENT_WORKFLOW', self.generate)
@@ -761,12 +761,12 @@ class YunXiaWorkflow(unittest.TestCase):
         p = fake / 'registry/yunxia-license/0.9.3-draft.2.json'
         data = json.loads(p.read_text()); data['version'] = 'wrong-version'
         p.write_bytes(yx.encoded(data))
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.assert_error('RELEASE_IDENTITY_MISMATCH', yx.catalog)
         data['version'] = CURRENT_VERSION; p.write_bytes(yx.encoded(data))
         body = p.read_bytes(); p.unlink()
         outside = Path(self.temp.name)/'outside.json'; outside.write_bytes(body); p.symlink_to(outside)
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.assert_error('CATALOG_PATH_INVALID', yx.catalog)
 
     def test_tampered_generation_binding_is_not_accepted(self):
@@ -779,7 +779,7 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_inspect_only_protocol_needs_no_license_output_filename(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake, kind='nda', renderer=None)
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.scan(); self.select(ref)
             self.assertEqual(yx.catalog().resolve(ref)['_text'], b'Fictional test protocol only.\n')
             self.assertIsNone(yx.catalog().resolve(ref)['output_name'])
@@ -791,14 +791,14 @@ class YunXiaWorkflow(unittest.TestCase):
         p = fake / 'registry/fixture/1.0.0-rc.1.json'
         manifest = json.loads(p.read_text()); manifest['capabilities'] = ['adopt']
         p.write_bytes(yx.encoded(manifest))
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.assert_error('RELEASE_CONTAINS_ADAPTER_CONFIG', yx.catalog)
 
     def test_nonstandard_catalog_json_is_rejected(self):
         fake = self.catalog_copy()
         p = fake / 'registry/yunxia-license/0.9.3-draft.2.json'
         original = p.read_bytes()
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             data = json.loads(original); data['format_version'] = True
             p.write_bytes(yx.encoded(data))
             self.assert_error('RELEASE_FORMAT', yx.catalog)
@@ -988,7 +988,7 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_released_protocol_does_not_require_accepting_it_as_a_draft(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake, released=True)
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             snap = self.scan(); self.select(ref)
             payload = self.facts()
             payload['adoption'] = {'authorized': True, 'accept_draft': False, 'date': '2026-10-30', 'snapshot_id': snap['snapshot_id']}
@@ -999,7 +999,7 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_withdrawn_version_keeps_old_adoption_verifiable_without_new_generation(self):
         fake = self.catalog_copy()
         ref = self.add_fixture_protocol(fake, released=True)
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             snap = self.scan(); self.select(ref)
             payload = self.facts()
             payload['adoption'] = {'authorized': True, 'accept_draft': False,
@@ -1022,12 +1022,12 @@ class YunXiaWorkflow(unittest.TestCase):
                     {'date': '2026-11-02', 'confirmed_by': 'fixture maintainer',
                      'basis': 'Fictional preparation test', 'candidate_sha256': candidate['_package_sha256']})
         ref = result['prepared']
-        path = fake/'tooling/src/yunxia/adapters/support.json'
+        path = fake/'adapters.json'
         support = json.loads(path.read_text())
         support['supported'].append({'agreement': ref, 'adapter': 'scope-license-v1',
                                      'output_name': 'LICENSE.fixture-1.txt'})
         path.write_bytes(yx.encoded(support))
-        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake)):
+        with patch.dict(os.environ, YUNXIA_CATALOG_ROOT=str(fake), YUNXIA_ADAPTERS_PATH=str(fake/"adapters.json")):
             self.scan(); self.select(ref)
             self.assertEqual(yx.selected(yx.load_state(self.root))['capabilities'], ['inspect'])
             self.assert_error('UNSUPPORTED_AGREEMENT_WORKFLOW', self.generate)

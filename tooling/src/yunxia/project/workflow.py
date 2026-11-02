@@ -132,7 +132,13 @@ def output_path(rel):
 
 
 def catalog():
-    return Catalog(default_root())
+    root = default_root()
+    if (root/'sources.lock.json').is_file():
+        from ..sources import load_catalog
+        return load_catalog(root)
+    adapter_path = os.environ.get('YUNXIA_ADAPTERS_PATH')
+    adapters = read_json(Path(adapter_path)) if adapter_path and not (root/'BUNDLE.json').exists() else None
+    return Catalog(root, adapter_data=adapters)
 
 
 def selected(state, capability=None):

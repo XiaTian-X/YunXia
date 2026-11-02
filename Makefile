@@ -1,4 +1,5 @@
 PYTHON ?= .venv/bin/python
+PROTOCOL_REPOSITORY ?= repositories/YunXia-Agreements
 
 .PHONY: test check build skill-test agreements-check agreements-build skill-install
 
@@ -15,7 +16,7 @@ skill-test:
 	$(PYTHON) -B -m unittest discover -s tooling/tests -p 'test_yunxia_skill.py' -v
 
 agreements-check:
-	$(PYTHON) -B tooling/yunxia.py check
+	$(PYTHON) -B tooling/yunxia.py check --repository $(PROTOCOL_REPOSITORY)
 
 agreements-build: build
 

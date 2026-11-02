@@ -4,14 +4,16 @@ import shutil
 import tempfile
 import re
 from .catalog import Catalog
-from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded, canonical_sha256, valid_relative_path
+from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded, canonical_sha256, valid_relative_path, atomic_write
+from .sources import load_catalog
 from . import VERSION
 
 
 def source_snapshot(root):
     """Capture the exact current inputs and Git-resolved catalog before copying."""
-    catalog = Catalog(root)
-    inputs = dict(catalog.inputs)
+    catalog = load_catalog(root)
+    inputs = dict(catalog.source_inputs)
+    inputs['tool/sources.lock.json'] = catalog.lock_bytes
     payload = {}
 
     def add_input(rel, content):
@@ -36,7 +38,7 @@ def source_snapshot(root):
             if p.is_file():
                 rel = p.relative_to(root).as_posix()
                 content = safe_path(root, rel).read_bytes()
-                add_input(rel, content)
+                add_input('tool/' + rel, content)
                 # The offline catalog owns the single bundled adapter registry.
                 if rel != 'tooling/src/yunxia/adapters/support.json':
                     add_payload(destination + p.relative_to(source).as_posix(), content)
@@ -45,9 +47,10 @@ def source_snapshot(root):
         raise CatalogError('DISTRIBUTION_SOURCE_MISSING')
     for rel, content in catalog.export_files().items():
         add_payload('assets/catalog/' + rel, content)
+    add_payload('assets/SOURCES.json', encoded(catalog.source_pins))
     input_hashes = {rel: sha256(content) for rel, content in sorted(inputs.items())}
     output_hashes = {rel: sha256(content) for rel, content in sorted(payload.items())}
-    return {'inputs': input_hashes, 'files': payload,
+    return {'inputs': input_hashes, 'files': payload, 'sources':catalog.source_pins,
             'source_sha256': canonical_sha256({'inputs': input_hashes, 'outputs': output_hashes})}
 
 
@@ -83,23 +86,27 @@ def validate(package):
         raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
     if manifest['source_sha256'] != canonical_sha256({'inputs': manifest['inputs'], 'outputs': manifest['files']}):
         raise CatalogError('DISTRIBUTION_SOURCE_MISMATCH')
+    if manifest.get('sources') != read_json(safe_path(package,'assets/SOURCES.json')):
+        raise CatalogError('DISTRIBUTION_SOURCE_MISMATCH')
     Catalog(safe_path(package,'assets/catalog'))
     return manifest
 
 
 def activate(stage, target):
     if target.is_symlink(): raise CatalogError('DISTRIBUTION_SYMLINK')
-    backup = stage.parent/'previous'
-    if target.exists(): target.rename(backup)
+    previous = stage.parent/'previous'
     try:
+        if target.exists(): target.rename(previous)
         stage.rename(target)
     except BaseException:
-        if backup.exists():
-            try: backup.rename(target)
+        if previous.exists():
+            if target.exists():
+                raise CatalogError('BUILD_RECOVERY_REQUIRED',[str(previous),str(target)]) from None
+            try: previous.rename(target)
             except BaseException:
-                raise CatalogError('BUILD_RECOVERY_REQUIRED',[str(backup)]) from None
+                raise CatalogError('BUILD_RECOVERY_REQUIRED',[str(previous)]) from None
         raise
-    return backup
+    return previous
 
 
 def build(root):
@@ -117,6 +124,7 @@ def build(root):
         Catalog(safe_path(stage, 'assets/catalog'))
         manifest = {'format_version': 2, 'tool_version': VERSION,
                     'source_sha256': snapshot['source_sha256'],
+                    'sources':snapshot['sources'],
                     'inputs': snapshot['inputs'], 'files': expected}
         (stage/'BUILD.json').write_bytes(encoded(manifest))
         validate(stage)
@@ -159,7 +167,8 @@ def install(root, destination, update=False):
         raise CatalogError('BUILD_REQUIRED')
     destination.parent.mkdir(parents=True,exist_ok=True)
     temp=Path(tempfile.mkdtemp(prefix='.yunxia-install-',dir=destination.parent))
-    backup=None
+    previous=None
+    preserve=False
     try:
         candidate=temp/'next'; candidate.mkdir()
         # Pin the original manifest, including its own bytes. A replacement package
@@ -173,31 +182,44 @@ def install(root, destination, update=False):
             raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
         if manifest['source_sha256'] != source_signature(root):
             raise CatalogError('INSTALL_SOURCE_CHANGED')
-        if destination.exists():
-            backup_root=safe_path(destination.parent.parent,'skill-backups');backup_root.mkdir(exist_ok=True)
-            backup=Path(tempfile.mkdtemp(prefix='yunxia-',dir=backup_root))/'yunxia'
-            destination.rename(backup)
-        activated=False
+        had_previous=destination.exists()
+        previous=temp/'previous' if had_previous else None
+        atomic_write(temp/'transaction.json', encoded({'format_version':1,
+                     'destination':str(destination), 'had_previous':had_previous,
+                     'source_sha256':manifest['source_sha256']}))
+        # From the first filesystem mutation onwards, an asynchronous exception
+        # must retain the only original tree until restoration is confirmed.
+        preserve=True
         try:
+            if previous is not None:
+                destination.rename(previous)
             candidate.rename(destination)
-            activated=True
             validate(destination)
         except BaseException:
             failed=None
-            if activated:
+            # A rename may have completed and then raised (e.g. SIGINT). Inspect
+            # paths rather than assuming a Python flag was assigned afterwards.
+            if not candidate.exists():
                 try:
-                    backup_root=safe_path(destination.parent.parent,'skill-backups');backup_root.mkdir(exist_ok=True)
-                    failed=Path(tempfile.mkdtemp(prefix='yunxia-failed-',dir=backup_root))/'yunxia'
+                    failed=temp/'failed'
                     destination.rename(failed)
                 except BaseException:
-                    paths=([str(backup)] if backup else [])+[str(destination)]
-                    if failed is not None:paths.append(str(failed))
+                    paths=([str(previous)] if previous is not None and previous.exists() else [])+[str(destination),str(temp)]
                     raise CatalogError('INSTALL_RECOVERY_REQUIRED',paths) from None
-            if backup:
-                try:backup.rename(destination)
-                except BaseException:raise CatalogError('INSTALL_RECOVERY_REQUIRED',[str(backup)]) from None
-            if failed:raise CatalogError('INSTALL_VERIFICATION_FAILED',[str(failed)]) from None
+            if previous is not None and previous.exists():
+                try:
+                    if destination.exists():raise OSError('Installation target changed during rollback')
+                    previous.rename(destination)
+                except BaseException:
+                    raise CatalogError('INSTALL_RECOVERY_REQUIRED',[str(previous),str(destination),str(temp)]) from None
+            if had_previous and not destination.exists():
+                raise CatalogError('INSTALL_RECOVERY_REQUIRED',[str(destination),str(temp)]) from None
+            if failed:
+                raise CatalogError('INSTALL_VERIFICATION_FAILED',[str(failed)]) from None
+            preserve=False
             raise
-        return {'installed':str(destination),'previous_install_backup':str(backup) if backup else None,'tool_version':VERSION}
+        preserve=False
+        return {'installed':str(destination),'transaction_cleaned':True,'tool_version':VERSION}
     finally:
-        shutil.rmtree(temp)
+        if not preserve:
+            shutil.rmtree(temp)

@@ -1,6 +1,16 @@
 # 协议全周期维护
 
-在仓库根目录执行以下命令；维护其他仓库可在agreement后传入--repository。agreements保存当前工作资料，registry/<协议ID>/<版本>.json记录固定版本及发布事实，历史正文按完整Git提交和真实文件路径提取。tag统一指向该源码提交；登记文件与发布回执可以在后续提交中保存。
+本指南是通用维护流程。协议仓库保存当前工作材料、registry、审阅与发布事实；工具仓库提供操作能力。先读目标协议仓库的 `AGENTS.md` 和系列原则，并按 [架构说明](architecture.md) 确认两个独立 Git 根。
+
+下列命令从工具仓库根执行。更换协议仓库时只修改实际目标路径；从其他工作目录执行则使用工具入口的绝对路径。`--repository` 必须指向协议仓库，不能指向父工具仓库或尚未初始化的子目录。
+
+```bash
+yunxia_protocol="repositories/YunXia-Agreements"
+git -C "$yunxia_protocol" rev-parse --show-toplevel
+python3 -B tooling/yunxia.py check --repository "$yunxia_protocol"
+```
+
+目标仓库的 `agreements/` 保存工作资料，`registry/<协议ID>/<版本>.json` 登记固定版本及发布事实，历史正文从完整 Git 提交和真实路径提取。标签指向源码提交，登记和发布回执可以在后续提交保存。工具不自动替用户提交或推送，Agent 按 [Git 阶段约定](#git) 完成已授权操作。
 
 从 [任务导航](README.md) 选择章节。示例中的协议 ID、版本、路径和发布决定需替换为实际值；已有协议先运行 `agreement inspect --id <协议ID>` 查看工作信息和固定版本。命令本身及输入字段以当前 `tooling/yunxia.py` 的帮助和检查结果为准。
 
@@ -8,25 +18,55 @@
 
 ## 设立与起草
 
-输入是未占用的稳定协议 ID、名称、设立目的、目标版本和初始正文。先说明与现有协议的关系，再建立工作资料。
+用户可以只提出目标，不必先准备完整正文。Agent 先读取已有协议及相关设计，整理适用对象、拟解决的问题、希望允许和限制的行为，以及与现有协议的关系；判断应新增协议、修改现有工作稿，还是从固定版本发起修订。
+
+把已有事实、用户决定、Agent 建议和待核事项分开。只集中补问会改变条款或采用范围的关键缺口，每轮通常不超过三组；提供已找到的依据和可选取舍，未知信息保留待核，不猜测主体、权限或兼容结论。用户已明确的决定直接复用，等待答案时继续独立可完成的研究和资料整理。
+
+目标与关键取舍足以起草后，由 Agent 编写初始正文，使用真实临时输入文件调用 `create`。稳定 ID、显示名称、设立目的和目标版本应明确；仅换名不能冒充新的协议效果。初稿建立后，把设计理由写入 `design.md`，问题和未决事项写入 `review.md`，不再另建一套任务状态库。
+
+以下文件路径是输入示例，替换为实际准备的初稿：
 
 ```bash
-python3 -B tooling/yunxia.py agreement create --id example-license --name 示例协议 --purpose 实际设立目的 --version 1.0.0 --text /private/initial-text.txt
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" create --id example-license --name 示例协议 --purpose 实际设立目的 --version 1.0.0 --text /private/initial-text.txt
 ```
 
-命令只建立草案。维护者补齐README中的定位、design中的设计依据、review中的问题和adoption中的采用路径；需要时添加cases.json与templates。create生成的待填写说明不表示审阅完成。日常编辑通过Git留痕，并行修订用分支。
+命令只建立草案。Agent 根据已确认的目标补齐 README 中的定位、设计依据、审阅问题和人工采用路径，并按实际场景添加 `cases.json` 与必要模板。模板应服务真实采用方式，不引入正文中没有的许可条件。检查正常使用、边界情形和容易误解的情形，给后续审阅提供可讨论的具体案例。`create` 的占位说明不表示工作已完成；日常编辑通过 Git 留痕，并行修订使用分支。
+
+新增另一个协议通常只需在同一协议仓库调用 `create`。需要新的独立协议仓库时，先在实际目标目录执行 `git init`，再用 `repository init --repository <目标目录> --id <仓库ID>` 初始化仓库身份，随后建立该仓入口和原则；不要把协议 ID 与仓库 ID 混用。
 
 完成条件：工作目录已建立，定位与材料已整理，未决项有记录，`inspect` 和仓库检查通过。后续批准与候选冻结进入下一流程。
+
+<a id="edit"></a>
+
+## 修改工作材料
+
+修改前先 `inspect`，核对工作稿、固定基线、审阅是否仍有效以及未提交改动。继续当前草案可直接修改工作材料；从固定版本开始下一版时，先按 [版本修订](#revision) 执行 `revise`，不能先改正文再用该命令覆盖变化。
+
+Agent 应说明修改原因、涉及条款、行为变化和受影响案例，再同步设计、采用指南及必要模板。仅说明或显示名称变化也可能改变审阅材料摘要，必须重新核对原审阅；正文中名称改变属于正文修改。协议 ID、旧版本和固定记录保持不变。更名的理由及原名称在当前说明中记录，不追溯重写已固定草案、候选或正式版，也不自动修改旧项目采用。
+
+修改显示名称时，使用显式更名操作并记录实际原因：
+
+```bash
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" rename --id example-license --name 新显示名称 --reason 实际更名理由
+```
+
+`rename` 只修改当前元数据名称并追加名称历史，清除旧批准并回到 draft；相同名称不产生新变更。它不修改正文、协议 ID、历史 registry 或标签。Agent 随后按实际任务更新当前介绍和导航，正文中的名称如需变化仍须按草案修订或新版本处理。暂停或已停止维护的协议先按真实决定恢复维护状态，再更名。
+
+修改后给出差异和影响，核对正文与说明一致、旧引用仍可解析、未决项没有被删除或误写成确认。实际结论进入审阅流程；只要求讨论或审查的任务不扩展成修改、提交或发布。
 
 <a id="review"></a>
 
 ## 审阅与冻结
 
-输入是当前完整材料及实际审阅决定；冻结还需要未占用的候选标识和版本说明。审阅分析写入该协议的 `review.md`，工具登记的批准或要求修改结论写入维护元数据。
+输入是当前完整材料及实际审阅决定；冻结还需要未占用的候选标识和版本说明。Agent 审阅定义与主体是否一致、条款是否冲突、许可范围及例外是否清楚、条件和后果是否衔接，以及场景、模板、采用指南是否符合正文。对版本更新还要说明相对基线的变化及旧项目可能受影响的部分。
+
+来源引用和比较结论应有可追溯依据；无法确认的事实保持待核。需要独立复核时可委派其他 Agent，但如实记录其参与范围，不能把模型意见写成真实用户、组织或其他审阅者的决定。
+
+审阅分析写入该协议的 `review.md`；已确认的设计取舍保存在 `design.md`。实际批准或要求修改的结论通过工具写入维护元数据。复用当前任务中真实、足够明确的委托和决定；只有批准或发布范围确实缺失时才补问，先把待决定材料整理到可审阅状态，不重复要求已给出的授权。
 
 ```bash
-python3 -B tooling/yunxia.py agreement inspect --id example-license
-python3 -B tooling/yunxia.py agreement review --id example-license --input /private/review.json
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" inspect --id example-license
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" review --id example-license --input /private/review.json
 ```
 
 review.json必须有source_sha256（inspect返回）、reviewer、date、decision（approved或changes-required）、basis和open_issues。approved不能带未解决事项。摘要绑定正文、定位、设计、审阅分析、采用指南、存在的场景和模板，以及修订基线；材料改变后旧批准失效。批准记录自身和推荐等管理状态不参与递归摘要。工具记录实际提供的审阅决定，reviewer字段不自动证明身份或权限，测试和迁移不能代替批准。
@@ -36,10 +76,10 @@ review.json必须有source_sha256（inspect返回）、reviewer、date、decisio
 审阅后先提交实际材料、审阅记录以及声明的共享依赖，再冻结候选。按当前任务已授权的范围核对差异后提交；示例未替实际共享依赖填写路径：
 
 ```bash
-git add agreements/example-license
+git -C "$yunxia_protocol" add agreements/example-license
 # 若声明了共享依赖，同时暂存其中已修改的实际文件
-git commit -m "Review example-license 1.0.0"
-python3 -B tooling/yunxia.py agreement freeze --id example-license --version 1.0.0-rc.1 --notes /private/notes.md
+git -C "$yunxia_protocol" commit -m "Review example-license 1.0.0"
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" freeze --id example-license --version 1.0.0-rc.1 --notes /private/notes.md
 ```
 
 freeze核对已提交材料与当前审阅，保存源码提交、文件映射、原始字节摘要、审阅记录和版本说明，并创建本地注释标签example-license/v1.0.0-rc.1。候选固定后不能改绑源码；标签存在但指向不同提交会失败。工具不执行历史提交中的代码，不以当前工作正文替代缺失历史对象。候选号必须不同于target_version，已有版本号不能重复用于新修订。
@@ -57,28 +97,28 @@ registry中的审阅依据、版本说明和发布决定会进入公开登记或
 先用inspect取得候选fixed_versions中的package_sha256。publication.json必须有date、confirmed_by、basis和candidate_sha256；最后一个字段使用整个候选包摘要，不是正文sha256或审阅摘要。
 
 ```bash
-python3 -B tooling/yunxia.py agreement inspect --id example-license
-python3 -B tooling/yunxia.py agreement publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --destination /outside/releases/example-license-1.0.0 --input /private/publication.json
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" inspect --id example-license
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --destination /outside/releases/example-license-1.0.0 --input /private/publication.json
 ```
 
 正式版本必须等于候选来源中已审阅的target_version。先登记prepared发布意图，再向仓库外目录交付、逐项核对实际文件并登记完成回执。本地渠道表示经过核对的本地交付，不表示远程URL可用。目标已有不同内容时拒绝覆盖；中断后使用相同输入重试，复用一致的交付并补齐回执。
 
-完成后运行 `agreement verify-publication --id example-license --version 1.0.0` 核对实际目录；登记应为 `status=released` 且 `publication.state=published`。单独使用 `--prepare` 只占用版本身份并保存发布意图，不满足交付完成条件。
+完成后运行 `agreement --repository "$yunxia_protocol" verify-publication --id example-license --version 1.0.0` 核对实际目录；登记应为 `status=released` 且 `publication.state=published`。单独使用 `--prepare` 只占用版本身份并保存发布意图，不满足交付完成条件。
 
 <a id="github-publication"></a>
 
 ## GitHub发布与恢复
 
-GitHub渠道使用github.com，需要已认证的gh、明确的目标仓库、候选和发布决定。OWNER/REPO替换为实际目标；示例中的 `origin` 必须指向这个仓库。本仓库没有正式发布；以下命令是维护者未来明确决定发布时使用的流程。
+GitHub 渠道使用 github.com，需要已认证的 gh、明确的协议仓库、候选和发布决定。OWNER/REPO 替换为协议仓库的实际目标，不能使用父工具仓库的 origin；示例中的协议仓库 origin 必须指向该目标。当前允夏协议尚无正式发布，以下命令只用于实际获得发布授权的任务。
 
 ```bash
-python3 -B tooling/yunxia.py agreement publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --github OWNER/REPO --input /private/publication.json --prepare
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --github OWNER/REPO --input /private/publication.json --prepare
 # 核对并提交prepared、对应候选与修订基线登记及协议元数据，推送到目标仓库
 # 推送本次依赖的候选标签；其他基线标签同样逐项推送
-git push origin example-license/v1.0.0-rc.1
-python3 -B tooling/yunxia.py agreement publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --github OWNER/REPO --input /private/publication.json
+git -C "$yunxia_protocol" push origin example-license/v1.0.0-rc.1
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --github OWNER/REPO --input /private/publication.json
 # 核对完成回执后，提交并推送更新的registry
-python3 -B tooling/yunxia.py agreement verify-publication --id example-license --version 1.0.0
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" verify-publication --id example-license --version 1.0.0
 ```
 
 准备阶段占用正式版本身份并固定来源、标签、发布决定和附件摘要。登记及其候选、修订基线等依赖必须在同一已提交快照中完整可读，并已推送；依赖标签也必须可从远端解析到固定提交。发布工具在任何远端写入前核对这些条件，随后核对正式版本标签、创建或恢复draft Release、核对已有附件并补齐缺失项，最后公开并下载验证，再写完成回执。工具不替维护者提交或推送任意工作树文件。
@@ -97,7 +137,7 @@ python3 -B tooling/yunxia.py agreement verify-publication --id example-license -
 修订输入是可解析的固定基线和未占用的新目标版本。先执行 `revise` 再编辑下一版正文。
 
 ```bash
-python3 -B tooling/yunxia.py agreement revise --id example-license --base 1.0.0 --version 2.0.0
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" revise --id example-license --base 1.0.0 --version 2.0.0
 ```
 
 revise要求工作正文仍与基线一致，防止覆盖已编辑内容；它绑定下一版目标及基线，清除旧批准，正文随后由维护者修改。已发布正文任何改变都需要新版本。历史引用链必须可从固定Git对象解析，缺失或摘要不一致会使检查失败。
@@ -111,10 +151,10 @@ revise要求工作正文仍与基线一致，防止覆盖已编辑内容；它�
 输入是实际目标版本或维护状态及其理由；按任务选择所需命令：
 
 ```bash
-python3 -B tooling/yunxia.py agreement recommend --id example-license --version 1.0.0 --reason 实际推荐理由
-python3 -B tooling/yunxia.py agreement recommend --id example-license --reason 停止推荐理由
-python3 -B tooling/yunxia.py agreement retire --id example-license --reason 停止维护理由
-python3 -B tooling/yunxia.py agreement maintain --id example-license --state active --reason 恢复维护理由
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" recommend --id example-license --version 1.0.0 --reason 实际推荐理由
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" recommend --id example-license --reason 停止推荐理由
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" retire --id example-license --reason 停止维护理由
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" maintain --id example-license --state active --reason 恢复维护理由
 ```
 
 recommend只能指向可推荐的正式版，不填version表示停止推荐。retire清除推荐并停止维护，历史记录仍保留；maintain支持active、paused和retired。维护状态、推荐和适配支持分别管理，不因工具升级或新版本发布改变旧项目绑定。
@@ -122,12 +162,40 @@ recommend只能指向可推荐的正式版，不填version表示停止推荐。r
 主动撤回分发使用实际决定文件（date、reason、confirmed_by）：
 
 ```bash
-python3 -B tooling/yunxia.py agreement withdraw --id example-license --version 1.0.0 --input /private/withdrawal.json
+python3 -B tooling/yunxia.py agreement --repository "$yunxia_protocol" withdraw --id example-license --version 1.0.0 --input /private/withdrawal.json
 ```
 
 撤回保留原版本和发布证据，停止推荐；不能删除正文来表达撤回，也不自动改变既有项目的采用记录或推定其法律效果。
 
-状态调整完成后，用 `inspect`、`project catalog` 和仓库检查核对相应状态、推荐及保留的引用；不要把停止维护与撤回分发混为同一个决定。
+状态调整完成后，用带协议仓库路径的 `inspect` 和协议检查核对当前状态、推荐及保留的引用。`project catalog` 反映来源锁或安装包快照，只有显式更新来源后才包含新的维护状态；不能拿旧快照判定本次修改未生效。不要把停止维护与撤回分发混为同一个决定。
+
+<a id="git"></a>
+
+## Git 阶段约定
+
+工具负责受校验的文件与发布操作，Git 提交和推送由维护者或已获授权的 Agent 执行。先确认任务范围、实际仓库根、分支、远端和工作树差异，识别其他未提交工作，不把它们一起暂存，也不擅自丢弃或移动。协议改动用 `git -C "$yunxia_protocol"`，工具、来源锁和适配改动提交到工具仓库；父仓索引不得包含 `repositories/` 文件或 gitlink。
+
+在既有授权内按阶段持续执行，不逐条命令请求确认。没有覆盖提交、推送或正式发布的授权时，只补问缺失的具体范围；检查或修复授权不能自动扩大成正式发布。阶段提交应只包含实际需要的文件，检查私有证据、凭证、生成物和无关改动，并运行适合本次变化的检查。
+
+| 节点 | 必须保存的事实 | 下一步 |
+| --- | --- | --- |
+| 审阅完成 | 正文、完整审阅材料、实际决定及声明的依赖 | 提交后冻结候选 |
+| 候选冻结 | 候选登记和固定标签 | 核对候选与已有版本说明 |
+| 发布准备 | prepared 登记、候选、修订基线和协议元数据 | 提交推送并核对依赖标签后公开发布 |
+| 发布完成 | 实际下载核验后的完成回执 | 提交推送，再运行发布核验 |
+| Skill 接入 | 明确选择的协议目录提交、适配登记及测试 | 在工具仓库提交后构建和验收 |
+
+提交成功不等于推送成功，推送成功不等于协议已发布。失败时报告本地提交、实际远端状态及下一步，按原输入核验重试；不得强推改写历史或删除已公开结果伪装回滚。不创建操作前全仓备份、Git bundle 或长期安装副本。
+
+<a id="resume"></a>
+
+## 继续维护
+
+新会话或接手其他 Agent 的任务时，不仅依赖聊天中的进度描述。先读取目标仓库入口、现有设计和审阅未决项，运行 `inspect`，再核对 Git 工作树、分支、registry、标签以及任务确实需要的远端状态。区分正在编辑的草案、已固定候选、prepared 意图、已公开附件、已写回执和已同步回执。
+
+从已确认事实重建目标、当前阶段、修改依据、剩余缺口和有效授权。记录中的来源和范围不清时只补问影响下一步的部分，不将旧任务的授权扩大到新版本或新渠道。复用 `design.md`、`review.md`、协议元数据与 registry 中的事实，不另建重复的进度数据库，不为续接编造确认日期或审阅身份。
+
+优先处理未完成事务或发布恢复，再推进新修改。交接时说明实际修改文件、提交和推送状态、检查结果、未决项及下一步；私人材料只保留必要定位，不自动写入公开审阅或发布记录。
 
 <a id="recovery"></a>
 
@@ -137,10 +205,10 @@ python3 -B tooling/yunxia.py agreement withdraw --id example-license --version 1
 
 | 情况 | 处理方式 | 完成判据 |
 | --- | --- | --- |
-| 维护命令中断后遗留 PID 锁 | 在维护仓库执行 `python3 -B tooling/yunxia.py recover-maintenance`；只回收已结束进程的锁，再重试原操作 | 锁恢复结果明确，原操作及相应检查通过 |
+| 维护命令中断后遗留 PID 锁 | 从工具仓库执行 `python3 -B tooling/yunxia.py recover-maintenance --repository "$yunxia_protocol"`；只回收已结束进程的锁，再重试原操作 | 锁恢复结果明确，原操作及相应检查通过 |
 | 本地交付或 GitHub 附件操作中断，完成回执尚未写入 | 按原协议、候选、版本、渠道和决定重试发布；具体条件见上方对应发布流程 | 原交付被核验，完成回执形成；GitHub 还需提交、推送和核验登记 |
 | GitHub 回执已写入但未提交或推送 | 核对并提交、推送登记，再执行 `verify-publication` | 远端附件和完成登记同时核验通过 |
-| 构建或安装报告需要恢复 | 按错误返回的实际备份和目标路径核对并恢复；保护机制见 [开发指南](development.md) | 可用包与原固定摘要一致，再完成构建或安装检查 |
+| 构建或安装报告需要恢复 | 按错误返回的事务暂存和目标路径核对并恢复；成功后清理临时旧目录，机制见 [开发指南](development.md) | 可用包与原固定摘要一致，再完成构建或安装检查 |
 | 目标项目材料写入中断 | 按 [项目事务恢复](../skills/yunxia/references/recovery.md) 对发生中断的采用单元操作 | 原字节与已记录权限恢复，重新扫描并报告检查结果 |
 
 `recover-maintenance` 只处理维护锁。活跃锁保持不动，保留的 guard 文件不是待删除的锁残留；说明见 [开发指南](development.md)。Git对象缺失、摘要冲突或人工修改冲突应根据真实来源处理，不通过删状态、改摘要或覆盖标签绕过。恢复完成前报告已完成和仍待核的部分。
@@ -153,4 +221,4 @@ python3 -B tooling/yunxia.py agreement withdraw --id example-license --version 1
 
 三份历史版本保留imported-draft身份、原有名称、说明、正文摘要和空发布事实。迁移绑定现有Git历史中实际存在的releases路径，原source.path仅作为历史来源注记保留；迁移不补造审阅或正式发布。
 
-维护者应保留完整Git历史或可恢复镜像。构建与登记校验需要完整历史以核对历次登记事实；浅克隆先补齐历史，缺少固定对象时明确失败，不得自动改pin、用HEAD替代或重新归一化正文。独立Skill携带构建时的版本与资产，可离线采用，但不能获知构建后的维护变化。
+协议仓库须保留完整 Git 历史及迁移清单固定的历史来源分支。构建与登记校验需要这些真实对象；浅克隆先补齐历史，缺少对象时明确失败，不自动改 pin、用 HEAD 替代或重新归一化正文。必要历史对象属于引用依赖，不额外生成备份。Skill 的来源更新与构建见 [开发指南](development.md)，离线包不能获知构建后的维护变化。

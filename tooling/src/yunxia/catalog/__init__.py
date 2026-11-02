@@ -7,6 +7,25 @@ from ..common import CatalogError, safe_path, sha256, segment, canonical_sha256,
 from .. import gitstore
 
 REFERENCE_KEYS = {'agreement_id', 'version', 'sha256'}
+MIGRATION_PATH = 'provenance/repository-migration.json'
+
+
+def validate_repository(data):
+    if (not isinstance(data, dict) or set(data) != {'format_version', 'repository_id', 'migration'}
+            or type(data['format_version']) is not int or data['format_version'] != 1
+            or not segment(data['repository_id'])
+            or data['migration'] not in (None, MIGRATION_PATH)):
+        raise CatalogError('PROTOCOL_REPOSITORY_FORMAT', ['repository.json'])
+    return data
+
+
+def require_repository(root):
+    gitstore.require_root(root)
+    try:
+        data = parse_json(safe_path(root, 'repository.json').read_bytes().decode('utf-8'))
+    except (OSError, ValueError):
+        raise CatalogError('PROTOCOL_REPOSITORY_REQUIRED', ['repository.json']) from None
+    return validate_repository(data)
 
 
 def validate_review_dependencies(value):
@@ -119,9 +138,11 @@ def default_root():
     if os.environ.get('YUNXIA_CATALOG_ROOT'):
         return Path(os.environ['YUNXIA_CATALOG_ROOT'])
     for parent in Path(__file__).resolve().parents:
-        if (parent / 'assets/catalog/registry').is_dir():
+        if (parent / 'assets/catalog/BUNDLE.json').is_file():
             return parent / 'assets/catalog'
-        if (parent / 'agreements').is_dir() and (parent / 'registry').is_dir():
+        if (parent / 'sources.lock.json').is_file():
+            return parent
+        if (parent / 'repository.json').is_file():
             return parent
     raise CatalogError('CATALOG_NOT_FOUND')
 
@@ -142,14 +163,30 @@ def validate_supports(data):
 
 
 class Catalog:
-    def __init__(self, root=None):
+    def __init__(self, root=None, *, commit=None, adapter_data=None):
         self.root = Path(root) if root is not None else default_root()
         self.inputs, self.blobs, self.entries, self.recommended_by_agreement = {}, {}, [], {}
         self._blob_cache = {}
         self._head = None
-        if (self.root/'catalog.json').exists(): raise CatalogError('UNSUPPORTED_CATALOG_FORMAT')
+        self._commit = commit
+        self._tree = None
+        self.history_roots = []
+        self.repository = None
+        self.migration = None
         if not self.root.is_dir() or self.root.is_symlink(): raise CatalogError('CATALOG_PATH_INVALID')
-        self.bundled = (self.root/'BUNDLE.json').exists()
+        self.bundled = commit is None and (self.root/'BUNDLE.json').exists()
+        if not self.bundled:
+            gitstore.require_root(self.root)
+            if commit is not None:
+                if not isinstance(commit, str) or not gitstore.OID.fullmatch(commit): raise CatalogError('GIT_COMMIT_INVALID')
+                self._tree = gitstore.list_tree(self.root, commit)
+                self._head = commit
+            elif gitstore.run(self.root,['rev-parse','--verify','HEAD^{commit}'],False).returncode==0:
+                self._head = gitstore.head(self.root)
+            if gitstore.run(self.root,['rev-parse','--is-shallow-repository']).stdout.strip()!=b'false':
+                raise CatalogError('GIT_HISTORY_INCOMPLETE')
+            if self._head is not None: self.history_roots.append(self._head)
+        if self._exists('catalog.json'): raise CatalogError('UNSUPPORTED_CATALOG_FORMAT')
         if self.bundled:
             marker=self._json('BUNDLE.json')
             if not isinstance(marker,dict) or type(marker.get('format_version')) is not int or marker['format_version']!=1:
@@ -158,28 +195,25 @@ class Catalog:
             if not isinstance(bundle_snapshot,str) or not re.fullmatch('[0-9a-f]{64}',bundle_snapshot): raise CatalogError('BUNDLE_FORMAT')
             adapter_data=self._json('adapters.json')
         else:
-            adapter_path='tooling/src/yunxia/adapters/support.json'
-            adapter_data=self._json(adapter_path) if safe_path(self.root,adapter_path).exists() else {'format_version':1,'supported':[]}
-        registry=validate_supports(adapter_data)
-        self.adapter_data=adapter_data
-        if not self.bundled and gitstore.run(self.root,['rev-parse','--verify','HEAD^{commit}'],False).returncode==0:
-            self._head=gitstore.head(self.root)
-            # Even an empty current registry can conceal records behind a shallow boundary.
-            if gitstore.run(self.root,['rev-parse','--is-shallow-repository']).stdout.strip()!=b'false':
-                raise CatalogError('GIT_HISTORY_INCOMPLETE')
+            if not self._is_file('repository.json'):
+                raise CatalogError('PROTOCOL_REPOSITORY_REQUIRED', ['repository.json'])
+            self.repository = validate_repository(self._json('repository.json'))
+            self._control_history('repository.json', self.repository)
+            self._migration_history()
+            if adapter_data is None: adapter_data={'format_version':1,'supported':[]}
         bases=[]
-        for family in child_directories(self.root,'registry'):
-            for p in sorted(family.iterdir()):
+        for family in self._directories('registry'):
+            for p in self._children(family.relative_to(self.root).as_posix()):
                 if p.name=='.DS_Store': continue
-                rel=p.relative_to(self.root).as_posix();safe_path(self.root,rel)
-                if not p.is_file() or p.suffix!='.json' or not segment(p.stem): raise CatalogError('REGISTRY_PATH_INVALID',[rel])
+                rel=p.relative_to(self.root).as_posix()
+                if not self._is_file(rel) or p.suffix!='.json' or not segment(p.stem): raise CatalogError('REGISTRY_PATH_INVALID',[rel])
                 m=self._json(rel)
-                self._add(m,rel,p.parent.name,p.stem,registry,bases)
+                self._add(m,rel,p.parent.name,p.stem,bases)
         identities=set()
         self.agreements={}
-        for folder in child_directories(self.root,'agreements'):
+        for folder in self._directories('agreements'):
             rel=(folder/'agreement.json').relative_to(self.root).as_posix()
-            if not safe_path(self.root,rel).is_file(): raise CatalogError('AGREEMENT_RECORD_MISSING',[rel])
+            if not self._is_file(rel): raise CatalogError('AGREEMENT_RECORD_MISSING',[rel])
             m=self._json(rel)
             if not isinstance(m,dict) or not {'agreement_id','name','kind','recommended'}<=m.keys() or m['agreement_id']!=folder.name or not all(isinstance(m[k],str) and m[k].strip() for k in ('name','kind')):
                 raise CatalogError('AGREEMENT_FORMAT',[rel])
@@ -200,11 +234,11 @@ class Catalog:
         for ref,rel in bases:
             try:self.resolve(ref)
             except CatalogError as error:raise CatalogError(error.code,[rel]) from None
-        for row in registry:self.resolve(row['agreement'])
+        self.apply_supports(adapter_data)
         self._publication_bindings()
-        if not self.bundled and self._head is not None:
+        if not self.bundled and self.history_roots:
             # Follow every parent and include merge-created records, even if later removed.
-            historical=gitstore.run(self.root,['log','--full-history','-m','--no-renames','--format=','--name-only','--diff-filter=A',self._head,'--','registry']).stdout.decode().splitlines()
+            historical=gitstore.run(self.root,['log','--full-history','-m','--no-renames','--format=','--name-only','--diff-filter=A',*self.history_roots,'--','registry']).stdout.decode().splitlines()
             for rel in set(historical):
                 if re.fullmatch(r'registry/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.json',rel) and rel not in self.inputs:
                     raise CatalogError('REGISTRY_RECORD_MISSING',[rel])
@@ -215,9 +249,140 @@ class Catalog:
             for rel,content in expected.items():
                 if safe_path(self.root,rel).read_bytes()!=content:raise CatalogError('BUNDLE_HASH_MISMATCH',[rel])
 
+    def _read(self, rel):
+        if self._commit is not None:
+            return gitstore.read_blob(self.root, self._commit, rel)
+        return safe_path(self.root, rel).read_bytes()
+
+    def _exists(self, rel):
+        if self._tree is not None:
+            return rel in self._tree or any(p.startswith(rel+'/') for p in self._tree)
+        return safe_path(self.root, rel).exists()
+
+    def _is_file(self, rel):
+        if self._tree is not None:
+            item = self._tree.get(rel)
+            return item is not None and item[0] in ('100644', '100755') and item[1] == 'blob'
+        return safe_path(self.root, rel).is_file()
+
+    def _children(self, rel):
+        if self._tree is None:
+            return sorted(safe_path(self.root, rel).iterdir())
+        prefix=rel+'/'
+        names={p[len(prefix):].split('/')[0] for p in self._tree if p.startswith(prefix)}
+        return [self.root/rel/name for name in sorted(names)]
+
+    def _directories(self, rel):
+        if self._tree is None:
+            return child_directories(self.root, rel)
+        if rel in self._tree:
+            raise CatalogError('CATALOG_DIRECTORY_INVALID', [rel])
+        result=[]
+        for path in self._children(rel):
+            name=path.name
+            if name=='.DS_Store' or name.startswith(('.new-agreement-', '.yunxia-stage-')):
+                continue
+            child=path.relative_to(self.root).as_posix()
+            if name=='README.md' and self._is_file(child):
+                continue
+            if not segment(name) or child in self._tree:
+                raise CatalogError('CATALOG_DIRECTORY_INVALID', [child])
+            result.append(path)
+        return result
+
+    def _history_commits(self, rel, roots):
+        if not roots:
+            return []
+        return gitstore.run(self.root, ['log', '--full-history', '--format=%H',
+                                       *roots, '--', rel]).stdout.decode().splitlines()
+
+    def _control_history(self, rel, current):
+        """The root marker and migration cannot be erased, even on a merged branch."""
+        roots=[self._head] if self._head is not None else []
+        for commit in self._history_commits(rel, roots):
+            try:
+                before=parse_json(gitstore.read_blob(self.root,commit,rel).decode('utf-8'))
+            except (CatalogError, ValueError):
+                raise CatalogError('REPOSITORY_HISTORY_CHANGED', [rel]) from None
+            if before!=current:
+                raise CatalogError('REPOSITORY_HISTORY_CHANGED', [rel])
+
+    def _migration_history(self):
+        path=self.repository['migration']
+        if path is None:
+            if self._exists(MIGRATION_PATH) or self._history_commits(MIGRATION_PATH, self.history_roots):
+                raise CatalogError('REPOSITORY_HISTORY_CHANGED', [MIGRATION_PATH])
+            return
+        if not self._is_file(path):
+            raise CatalogError('MIGRATION_REQUIRED', [path])
+        data=self._json(path)
+        if (not isinstance(data,dict) or set(data)!={'format_version','origin','retained_history','registry_files','payloads'}
+                or type(data.get('format_version')) is not int or data['format_version']!=1):
+            raise CatalogError('MIGRATION_FORMAT', [path])
+        origin, retained=data['origin'],data['retained_history']
+        if (not isinstance(origin,dict) or set(origin)!={'repository','cutoff_commit'}
+                or not isinstance(origin['repository'],str) or not origin['repository'].strip()
+                or not isinstance(origin['cutoff_commit'],str) or not gitstore.OID.fullmatch(origin['cutoff_commit'])
+                or not isinstance(retained,dict) or set(retained)!={'ref','commit'}
+                or retained['commit']!=origin['cutoff_commit'] or not isinstance(retained['ref'],str)
+                or not retained['ref'].startswith('refs/heads/history/')
+                or gitstore.run(self.root,['check-ref-format',retained['ref']],False).returncode):
+            raise CatalogError('MIGRATION_FORMAT', [path])
+        self._control_history(path,data)
+        commit=origin['cutoff_commit']
+        tree=gitstore.list_tree(self.root,commit,'registry')
+        registry_paths={p for p in tree if re.fullmatch(r'registry/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.json',p)}
+        hashes=data['registry_files']
+        if (not isinstance(hashes,dict) or set(hashes)!=registry_paths
+                or any(not isinstance(v,str) or not re.fullmatch('[0-9a-f]{64}',v) for v in hashes.values())):
+            raise CatalogError('MIGRATION_BASELINE_CHANGED', [path])
+        payloads=[]
+        for rel in sorted(registry_paths):
+            content=gitstore.read_blob(self.root,commit,rel,hashes[rel])
+            try:
+                record=parse_json(content.decode('utf-8'))
+                ref=reference(record)
+                files={name:{'commit':record['source']['commit'], 'path':source,
+                             'sha256':record['files'][name]}
+                       for name,source in record['source']['files'].items()}
+            except (ValueError, KeyError, TypeError, AttributeError):
+                raise CatalogError('MIGRATION_FORMAT', [rel]) from None
+            payloads.append({'agreement':ref,'files':files})
+            for item in files.values():
+                gitstore.read_blob(self.root,item['commit'],item['path'],item['sha256'])
+        if data['payloads']!=payloads:
+            raise CatalogError('MIGRATION_BASELINE_CHANGED', [path])
+        # Branches retain the actual source objects; full commit IDs remain the identity.
+        branch=retained['ref'][len('refs/heads/'):]
+        names=gitstore.run(self.root,['for-each-ref','--format=%(refname) %(objectname)',
+                                     retained['ref'],'refs/remotes']).stdout.decode().splitlines()
+        matches=[row.split(' ',1)[1] for row in names
+                 if row.split(' ',1)[0]==retained['ref']
+                 or row.split(' ',1)[0].startswith('refs/remotes/')
+                 and row.split(' ',1)[0].split('/',3)[-1]==branch]
+        if not matches or any(oid!=commit for oid in matches):
+            raise CatalogError('MIGRATION_HISTORY_REF_INVALID', [retained['ref']])
+        self.migration=data
+        if commit not in self.history_roots:self.history_roots.append(commit)
+
+    def apply_supports(self, adapter_data):
+        """Combine independently maintained adapter capabilities with protocol facts."""
+        supported=validate_supports(adapter_data)
+        for row in supported:self.resolve(row['agreement'])
+        self.adapter_data=parse_json(json_bytes(adapter_data))
+        for entry in self.entries:
+            match=next((row for row in supported if row['agreement']==reference(entry)),None)
+            if match and entry['kind']!='license':raise CatalogError('CATALOG_WORKFLOW_UNSUPPORTED')
+            capabilities=['inspect']
+            if match and entry['status']!='prepared':
+                capabilities+=['verify'] if entry.get('withdrawal') else ['draft','adopt','verify']
+            entry.update(renderer=match['adapter'] if match else None, capabilities=capabilities,
+                         output_name=match['output_name'] if match else None)
+        return self
+
     def _json(self,rel):
         try:
-            content=safe_path(self.root,rel).read_bytes()
+            content=self._read(rel)
             result=parse_json(content.decode('utf-8'))
         except (ValueError,OSError):raise CatalogError('CATALOG_FORMAT',[rel]) from None
         self.inputs[rel]=content
@@ -237,7 +402,7 @@ class Catalog:
         self.blobs[expected]=content;self._blob_cache[key]=content
         return content
 
-    def _add(self,m,rel,aid,version,registry,bases):
+    def _add(self,m,rel,aid,version,bases):
         allowed={'format_version','agreement_id','version','sha256','display_name','kind','status','publication','files','source','notes','review','withdrawal'}
         if not isinstance(m,dict) or type(m.get('format_version')) is not int or m['format_version']!=2:raise CatalogError('RELEASE_FORMAT',[rel])
         required=allowed-{'notes','review','withdrawal'}
@@ -291,21 +456,13 @@ class Catalog:
             try:date.fromisoformat(withdrawal['date'])
             except ValueError:raise CatalogError('WITHDRAWAL_FORMAT',[rel]) from None
         payload['release.json']=json_bytes(m)
-        match=next((x for x in registry if x['agreement']==ref),None)
-        if match and m['kind']!='license':raise CatalogError('CATALOG_WORKFLOW_UNSUPPORTED')
-        capabilities=['inspect']
-        if match and m['status']!='prepared':
-            capabilities+=['verify'] if withdrawal else ['draft','adopt','verify']
         self.entries.append(dict(m,_text=body,_payload=payload,_manifest=rel,
-            _package_sha256=canonical_sha256({k:sha256(v) for k,v in payload.items()}),renderer=match['adapter'] if match else None,
-            capabilities=capabilities,output_name=match['output_name'] if match else None))
+            _package_sha256=canonical_sha256({k:sha256(v) for k,v in payload.items()})))
         if not self.bundled:self._frozen_record(m,rel)
 
     def _frozen_record(self,m,rel):
         """Preserve every reachable committed fact, including merged side branches."""
-        if self._head is None:
-            self._head=gitstore.head(self.root)
-        commits=gitstore.run(self.root,['log','--full-history','--format=%H',self._head,'--',rel]).stdout.decode().splitlines()
+        commits=self._history_commits(rel, self.history_roots)
         fixed={'format_version','agreement_id','version','sha256','display_name','kind','source','files','notes','review'}
         transitions={'imported-draft':{'imported-draft'},'candidate':{'candidate'},'prepared':{'prepared','released'},'released':{'released'}}
         for commit in commits:

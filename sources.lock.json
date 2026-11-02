@@ -1,0 +1,14 @@
+{
+  "format_version": 1,
+  "sources": [
+    {
+      "id": "YunXia-Agreements",
+      "repository": "https://github.com/XiaTian-X/YunXia-Agreements.git",
+      "repository_id": "yunxia-agreements",
+      "commit": "e2f85325bd17e60ba61806d2aa00e551d803a9aa",
+      "agreements": [
+        "yunxia-license"
+      ]
+    }
+  ]
+}

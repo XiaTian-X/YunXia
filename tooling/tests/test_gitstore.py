@@ -12,6 +12,7 @@ sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia import gitstore as g
 from yunxia.catalog import Catalog
 from yunxia.common import CatalogError,sha256
+from support import copy_catalog
 
 
 class GitObjects(unittest.TestCase):
@@ -78,7 +79,7 @@ class GitObjects(unittest.TestCase):
             self.assertEqual(g.read_blob(self.root,self.commit,'nested/text.txt'),b'fixed\r\nbytes\n')
 
     def test_offline_export_needs_no_git_and_detects_tampering(self):
-        c=Catalog(ROOT);files=c.export_files();target=self.root/'bundle';target.mkdir()
+        c=Catalog(copy_catalog(self.root/'catalog'));files=c.export_files();target=self.root/'bundle';target.mkdir()
         for rel,content in files.items():
             p=target/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(content)
         with patch('yunxia.gitstore.run',side_effect=AssertionError('offline Git call')):

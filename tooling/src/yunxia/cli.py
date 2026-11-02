@@ -17,15 +17,42 @@ def main(argv=None):
     if argv and argv[0] == 'project':
         from .project.workflow import main as project_main
         return project_main(argv[1:])
-    commands=['project','agreement','build','install','check','adapter','recover-maintenance']
+    commands=['project','agreement','repository','source','build','install','check','adapter','recover-maintenance']
     nested_help=any(word in commands for word in argv)
     parser=argparse.ArgumentParser(description=__doc__,add_help=not nested_help)
     parser.add_argument('command',choices=commands)
-    parser.add_argument('--repository',type=Path,default=Path.cwd())
+    parser.add_argument('--repository',type=Path)
     args,tail=parser.parse_known_args(argv)
-    root=args.repository.resolve()
+    root=(args.repository or Path.cwd()).resolve()
     try:
-        if args.command=='recover-maintenance':
+        if args.command=='repository':
+            from . import gitstore
+            from .common import segment, atomic_write
+            p=argparse.ArgumentParser(prog='yunxia repository')
+            p.add_argument('action',choices=['init']);p.add_argument('--id',required=True)
+            a=p.parse_args(tail)
+            gitstore.require_root(root)
+            if not segment(a.id):raise CatalogError('REPOSITORY_ID_INVALID')
+            with life.locked(root):
+                path=safe_path(root,'repository.json')
+                if path.exists():raise CatalogError('REPOSITORY_ALREADY_INITIALIZED')
+                if (root/'sources.lock.json').exists():raise CatalogError('REPOSITORY_IS_TOOL_SOURCE')
+                atomic_write(path,life.encoded({'format_version':1,'repository_id':a.id,'migration':None}),mode=0o644)
+                ignore=safe_path(root,'.gitignore')
+                content=ignore.read_bytes() if ignore.exists() else b''
+                if b'.yunxia-*' not in content.splitlines():
+                    atomic_write(ignore,content.rstrip(b'\n')+b'\n.yunxia-*\n',mode=0o644)
+            result={'initialized':str(root),'repository_id':a.id}
+        elif args.command=='source':
+            from . import sources
+            p=argparse.ArgumentParser(prog='yunxia source')
+            p.add_argument('action',choices=['fetch','pin']);p.add_argument('--id');p.add_argument('--commit')
+            a=p.parse_args(tail)
+            if a.action=='pin' and (a.id is None or a.commit is None):p.error('pin requires --id and --commit')
+            if a.action=='fetch' and a.commit is not None:p.error('fetch uses the existing locked commit')
+            with life.locked(root):
+                result=sources.fetch(root,a.id) if a.action=='fetch' else sources.pin(root,a.id,a.commit)
+        elif args.command=='recover-maintenance':
             argparse.ArgumentParser(prog='yunxia recover-maintenance').parse_args(tail)
             result=life.recover_lock(root)
         elif args.command=='build':
@@ -39,8 +66,11 @@ def main(argv=None):
             with life.locked(root):result=install(root,a.destination.absolute(),a.update)
         elif args.command=='check':
             from .validation import check
-            p=argparse.ArgumentParser(prog='yunxia check');p.add_argument('--test',action='store_true');a=p.parse_args(tail)
-            result=check(root,a.test)
+            p=argparse.ArgumentParser(prog='yunxia check');p.add_argument('--test',action='store_true')
+            p.add_argument('--scope',choices=['tool','protocol'],default='protocol' if args.repository else 'tool')
+            a=p.parse_args(tail)
+            if a.scope=='protocol' and a.test:p.error('protocol checks do not run tool source tests')
+            result=check(root,a.test,scope=a.scope)
         elif args.command=='adapter':
             p=argparse.ArgumentParser(prog='yunxia adapter');p.add_argument('--agreement',required=True);p.add_argument('--version',required=True);p.add_argument('--output-name',required=True)
             a=p.parse_args(tail)
@@ -48,7 +78,8 @@ def main(argv=None):
             import re
             if not re.fullmatch(r'LICENSE\.[A-Za-z0-9][A-Za-z0-9._-]*\.txt',a.output_name):raise CatalogError('OUTPUT_NAME_INVALID')
             with life.locked(root):
-                entry=Catalog(root).select(a.agreement,a.version)
+                from .sources import load_catalog
+                entry=load_catalog(root).select(a.agreement,a.version)
                 if entry['kind']!='license':raise CatalogError('UNSUPPORTED_AGREEMENT_WORKFLOW')
                 data=read_json(target) if target.exists() else {'format_version':1,'supported':[]}
                 ref=reference(entry)
@@ -58,7 +89,7 @@ def main(argv=None):
             result={'support_registered':ref,'adapter':'scope-license-v1','testing_required':True}
         else:
             p=argparse.ArgumentParser(prog='yunxia agreement')
-            p.add_argument('action',choices=['create','inspect','review','freeze','publish','revise','recommend','retire','maintain','withdraw','verify-publication'])
+            p.add_argument('action',choices=['create','inspect','review','freeze','publish','revise','rename','recommend','retire','maintain','withdraw','verify-publication'])
             p.add_argument('--id',required=True);p.add_argument('--name');p.add_argument('--purpose');p.add_argument('--kind',default='license')
             p.add_argument('--text',type=Path);p.add_argument('--version');p.add_argument('--input',type=Path);p.add_argument('--notes',type=Path)
             p.add_argument('--candidate');p.add_argument('--base');p.add_argument('--destination',type=Path);p.add_argument('--reason')
@@ -91,6 +122,7 @@ def main(argv=None):
                     if a.input is None:raise CatalogError('WITHDRAWAL_FORMAT')
                     return life.withdraw(root,a.id,a.version,read_json(a.input))
                 if a.action=='revise':return life.revise(root,a.id,a.base,a.version)
+                if a.action=='rename':return life.rename(root,a.id,a.name,a.reason)
                 if a.action=='recommend':return life.recommend(root,a.id,a.version,a.reason)
                 return life.maintain(root,a.id,'retired' if a.action=='retire' else a.state,a.reason)
             if a.action in ('inspect','verify-publication'):result=run()

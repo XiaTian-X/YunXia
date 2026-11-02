@@ -775,7 +775,7 @@
     }
   ],
   "historical_reference_policy": "原路径与资产编号在完整备份中解析，不作为当前活动文件路径；不补造权属或实际采用。",
-  "current_work": "按用户授权重构结构、独立引擎、生命周期和Skill衔接；协议正文不变。",
+  "current_work": "维护协议全周期管理工具和项目采用Skill；实际协议资料迁入独立协议仓库，原来源与固定引用保持不变。",
   "maintenance_events": [
     {
       "date": "2026-10-30",
@@ -822,6 +822,18 @@
       "request": "全面审查项目并修复可复现的问题。",
       "backup_name": "2026-11-02-full-audit-ma2zqvoi",
       "work": "补齐冻结前Git文件集合核对、PID原子创建、首次状态快照绑定、生成前扫描复核及安装失败备份诊断。",
+      "license_text_changed": false,
+      "formal_release_created": false,
+      "formal_adoption_created": false
+    },
+    {
+      "date": "2026-11-02",
+      "tool_version": "0.6.0",
+      "request": "审查方案后实施工具与协议拆仓，补齐Agent全周期规则，检查通过后分别提交推送。",
+      "protocol_repository": "https://github.com/XiaTian-X/YunXia-Agreements",
+      "historical_cutoff_commit": "bf25ad2257e48d6fc13b116d5b46802ad4517bf6",
+      "work": "协议资料和registry迁入独立协议仓库；父仓以固定来源锁构建Skill，补齐立项、修改审阅、Git阶段提交和跨会话续接；安装成功清理事务暂存。",
+      "additional_backup_created": false,
       "license_text_changed": false,
       "formal_release_created": false,
       "formal_adoption_created": false

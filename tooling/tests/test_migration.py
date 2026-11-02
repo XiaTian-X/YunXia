@@ -22,22 +22,6 @@ class HistoricalDraftMigration(unittest.TestCase):
             with self.assertRaises(CatalogError) as error:Catalog(root)
             self.assertEqual(error.exception.code,'RELEASE_FORMAT')
 
-    def test_original_draft_records_and_payloads_are_preserved(self):
-        catalog=Catalog(ROOT)
-        for version in ('0.9.2-draft.1','0.9.3-draft.1','0.9.3-draft.2'):
-            with self.subTest(version=version):
-                entry=catalog.select('yunxia-license',version)
-                source=entry['source'];folder=Path(source['files']['text.txt']).parent
-                original=json.loads(read_blob(ROOT,source['commit'],(folder/'release.json').as_posix()))
-                self.assertEqual(reference(entry),reference(original))
-                for key in ('display_name','kind','status','publication','files'):
-                    self.assertEqual(entry[key],original[key])
-                self.assertEqual(entry['status'],'imported-draft')
-                self.assertIsNone(entry['publication'])
-                self.assertEqual(source['provenance'],original['source'])
-                self.assertNotIn('review',entry)
-                for name,digest in original['files'].items():
-                    self.assertEqual(entry['_payload'][name],read_blob(ROOT,source['commit'],(folder/name).as_posix(),digest))
 
 
 if __name__=='__main__':unittest.main()

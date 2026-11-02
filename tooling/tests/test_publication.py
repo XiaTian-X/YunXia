@@ -12,7 +12,7 @@ sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia import lifecycle as life, gitstore
 from yunxia.catalog import Catalog
 from yunxia.common import CatalogError, sha256
-from support import git_commit
+from support import git_commit, write_repository
 
 
 class FakeGitHub:
@@ -60,6 +60,7 @@ class PublicationRecovery(unittest.TestCase):
         subprocess.run(['git','init','-q',str(self.root)],check=True)
         for key,value in [('user.name','Fixture'),('user.email','fixture@example.test'),('commit.gpgsign','false'),('core.hooksPath','/dev/null')]:
             subprocess.run(['git','-C',str(self.root),'config',key,value],check=True)
+        write_repository(self.root)
         life.create(self.root,'fixture','Fixture','Test only',b'Exact terms\n','1.0.0')
         info=life.inspect(self.root,'fixture')
         life.review(self.root,'fixture',{'source_sha256':info['source_sha256'],'reviewer':'Fixture','date':'2026-11-02','decision':'approved','basis':'Test only','open_issues':[]})

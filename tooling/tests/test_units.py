@@ -10,22 +10,24 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia.project import workflow as w
-from yunxia.catalog import Catalog, reference
+from yunxia.catalog import reference
+from support import copy_catalog, supported_catalog as Catalog
 
 
 class Units(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.root=Path(self.temp.name)/'project';self.root.mkdir()
+        self.catalog_root=copy_catalog(Path(self.temp.name)/'catalog')
         for path,content in [('src/a.py','print(1)\n'),('docs/a.md','A document\n')]:
             p=self.root/path;p.parent.mkdir();p.write_text(content)
         w.configure_unit('main');self.addCleanup(w.configure_unit,'main')
-        p=patch.object(w,'catalog',lambda:Catalog(ROOT));p.start();self.addCleanup(p.stop)
+        p=patch.object(w,'catalog',lambda:Catalog(self.catalog_root));p.start();self.addCleanup(p.stop)
 
     def adopt(self,unit,scope,path,version='0.9.3-draft.2'):
         with w.using_unit(unit),w.lock(self.root):
             w.set_scope(self.root,[scope]);snapshot=w.scan(self.root)
-            ref=reference(Catalog(ROOT).select('yunxia-license',version))
+            ref=reference(Catalog(self.catalog_root).select('yunxia-license',version))
             w.select_agreement(self.root,'yunxia-license',version)
             answer={'confirmed_by':'fixture','basis':'private evidence','identity':{'project_name':'fixture','licensor':'fixture author','role':'author'},'delivery':{'audience':'users','description':'source directory'},'assets':[{'paths':[path] if isinstance(path,str) else path,'origin':'human','disposition':'selected','basis':'fixture source'}],'adoption':{'authorized':True,'accept_draft':True,'date':'2026-10-25','snapshot_id':snapshot['snapshot_id'],'agreement':ref}}
             w.answer(self.root,answer);w.generate(self.root,'adopt',True)
