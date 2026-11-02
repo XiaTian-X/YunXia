@@ -174,6 +174,8 @@ def lock(root, recovery=False):
                 path.unlink()
             except PermissionError:
                 pass
+            except OverflowError:
+                raise WorkflowError('INVALID_LOCK') from None
         try:
             atomic_create(path, encoded({'pid': os.getpid()}), mode=0o600)
         except FileExistsError:

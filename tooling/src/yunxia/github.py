@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from urllib.parse import quote
-from .common import CatalogError, parse_json
+from .common import CatalogError, parse_json, valid_relative_path
 
 
 def validate_release(value):
@@ -72,6 +72,20 @@ class GitHub:
         if record is None:raise CatalogError('PUBLICATION_SOURCE_NOT_PUSHED',[commit])
         if not isinstance(record,dict) or record.get('sha')!=commit:
             raise CatalogError('GITHUB_RESPONSE_INVALID')
+
+    def verify_history_ref(self, ref, commit):
+        """A readable SHA alone does not make preserved history cloneable."""
+        if (not isinstance(ref,str) or not ref.startswith('refs/heads/history/')
+                or not valid_relative_path(ref)
+                or not isinstance(commit,str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})',commit)):
+            raise CatalogError('GITHUB_REFERENCE_INVALID')
+        record=self.api(self.base+'/git/ref/'+quote(ref[len('refs/'):],safe='/'),missing=True)
+        if record is None:raise CatalogError('PUBLICATION_HISTORY_NOT_PUSHED',[ref])
+        obj=record.get('object') if isinstance(record,dict) else None
+        if (not isinstance(obj,dict) or record.get('ref')!=ref or obj.get('type')!='commit'
+                or not isinstance(obj.get('sha'),str) or not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})',obj['sha'])):
+            raise CatalogError('GITHUB_RESPONSE_INVALID')
+        if obj['sha']!=commit:raise CatalogError('PUBLICATION_HISTORY_CONFLICT',[ref])
 
     def tag_commit(self, tag):
         result = self.api(self.base + '/git/ref/tags/' + quote(tag, safe='/'), missing=True)

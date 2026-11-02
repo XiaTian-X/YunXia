@@ -21,7 +21,7 @@ def check(root, run_tests=False, *, scope='tool'):
         directories=('docs','agreements','registry','provenance')
         root_files=('README.md','AGENTS.md','repository.json','toolchain.lock.json')
         lock=root/'toolchain.lock.json'
-        if lock.exists():
+        if lock.exists() and not lock.is_symlink():
             data=read_json(lock)
             if (not isinstance(data,dict) or set(data)!={'format_version','repository','commit'}
                     or type(data['format_version']) is not int or data['format_version']!=1
@@ -35,13 +35,27 @@ def check(root, run_tests=False, *, scope='tool'):
         root_files=('README.md','AGENTS.md','CHANGELOG.md','sources.lock.json')
         tracked=gitstore.run(root,['ls-files','--','repositories']).stdout.decode().splitlines()
         if tracked:errors.append({'code':'NESTED_REPOSITORY_TRACKED','paths':tracked})
+        # check-ignore does not accept Git's literal pathspec mode; this path is
+        # a fixed repository-relative constant, not user-supplied path syntax.
+        if gitstore.run(root,['--no-literal-pathspecs','check-ignore','--quiet','--no-index','--','repositories/'],False).returncode:
+            errors.append({'code':'NESTED_REPOSITORY_NOT_IGNORED','path':'repositories/'})
         for forbidden in ('agreements','registry','repository.json'):
             if (root/forbidden).exists():errors.append({'code':'PROTOCOL_CONTENT_IN_TOOL_REPOSITORY','path':forbidden})
     else:
         raise CatalogError('CHECK_SCOPE_INVALID')
-    paths=[root/name for name in root_files]
+    paths=[]
+    for name in root_files:
+        path=root/name
+        if path.is_symlink():
+            errors.append({'code':'SOURCE_SYMLINK','path':name})
+        else:
+            paths.append(path)
     for directory in directories:
-        for p in (root/directory).rglob('*'):
+        base=root/directory
+        if base.is_symlink():
+            errors.append({'code':'SOURCE_SYMLINK','path':directory})
+            continue
+        for p in base.rglob('*'):
             if '__pycache__' in p.parts or p.name=='.DS_Store':continue
             if p.is_symlink():errors.append({'code':'SOURCE_SYMLINK','path':str(p.relative_to(root))});continue
             if p.is_file():paths.append(p)

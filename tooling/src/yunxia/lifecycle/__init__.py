@@ -38,6 +38,8 @@ def recover_lock(root):
         if not isinstance(value,dict) or type(value.get('pid')) is not int or value['pid']<=0:
             raise CatalogError('MAINTENANCE_LOCK_INVALID',[str(p)])
         try:os.kill(value['pid'],0)
+        except OverflowError:
+            raise CatalogError('MAINTENANCE_LOCK_INVALID',[str(p)]) from None
         except ProcessLookupError:
             p.unlink();return {'lock_recovered':True}
         except PermissionError:pass
@@ -225,6 +227,9 @@ def record_path(root, aid, version):
 def freeze(root, aid, version, notes):
     valid_id(version)
     if not isinstance(notes, str) or not notes.strip(): raise CatalogError('RELEASE_NOTES_REQUIRED')
+    # Check all retained facts even for a new protocol with no revision base.
+    # No candidate tag or registry write may precede this validation.
+    Catalog(root)
     info = inspect(root, aid); m = info['agreement']
     if m['maintenance'] != 'active': raise CatalogError('MAINTENANCE_INACTIVE')
     if not info['review_current_and_approved']: raise CatalogError('REVIEW_REQUIRED_OR_STALE')
@@ -232,7 +237,11 @@ def freeze(root, aid, version, notes):
     target = record_path(root, aid, version)
     if target.exists(): raise CatalogError('FIXED_VERSION_EXISTS', [str(target)])
     if record_path(root, aid, m['target_version']).exists(): raise CatalogError('TARGET_VERSION_EXISTS')
-    commit = gitstore.head(root)
+    tag = f'{aid}/v{version}'
+    # The tag can survive an interruption before the registry write. Resume
+    # against its original source, then perform the same complete review checks.
+    # An unrelated later HEAD must not force a tag rewrite or strand recovery.
+    commit = gitstore.tag_commit(root,tag) or gitstore.head(root)
     metadata_bytes = gitstore.read_blob(root, commit, f'agreements/{aid}/agreement.json')
     try: committed = parse_json(metadata_bytes.decode('utf-8'))
     except (ValueError,UnicodeError): raise CatalogError('REVIEW_NOT_COMMITTED') from None
@@ -254,7 +263,6 @@ def freeze(root, aid, version, notes):
     source_files = {'text.txt': f'agreements/{aid}/text.txt', 'adoption.md': f'agreements/{aid}/adoption.md'}
     payload = {name: gitstore.read_blob(root, commit, path) for name,path in source_files.items()}
     payload.update({'notes.md': notes.encode(), 'review.json': encoded(m['review'])})
-    tag = f'{aid}/v{version}'
     record = {'format_version':2, 'agreement_id':aid, 'version':version,
               'sha256':sha256(payload['text.txt']), 'display_name':m['name'], 'kind':m['kind'],
               'status':'candidate', 'publication':None,

@@ -22,16 +22,22 @@
 
 本仓库开发工具、数据契约、适配器和 Skill。正文、审阅、版本登记及发布事实由独立的 [YunXia-Agreements 协议仓库](https://github.com/XiaTian-X/YunXia-Agreements) 维护；两个仓库分别提交和推送，协议变化不与工具代码变化混在同一条日常提交历史中。
 
+| 你的目标 | 从这里开始 |
+| --- | --- |
+| 阅读协议正文、设计和历史草案 | [协议仓库首页](https://github.com/XiaTian-X/YunXia-Agreements#当前协议) |
+| 让 Agent 立项、修改、审阅或发布协议 | [协议维护流程](docs/maintenance.md)，先核对目标仓库的固定工具链 |
+| 为具体项目采用指定协议 | 构建并安装 [yunxia Skill](skills/yunxia/SKILL.md)，按 [项目工作流](skills/yunxia/references/workflow.md) 处理 |
+| 开发工具或新增适配支持 | [开发指南](docs/development.md) |
+
 ## 当前状态
 
 | 项目 | 状态 |
 | --- | --- |
-| 维护工具与 Skill | 0.6.0 |
+| 维护工具与 Skill | 0.6.1 |
 | 协议仓库默认位置 | `repositories/YunXia-Agreements/`，父仓整体忽略 |
 | 构建协议来源 | [sources.lock.json](sources.lock.json) 固定仓库与完整目录提交 |
-| 已收录协议 | 允夏许可证，当前工作正文为 0.9.3 审阅草案 |
-| 固定历史 | 三份 imported-draft，原登记及正文摘要保持 |
-| 正式协议发布 | 暂无 |
+| 当前构建收录 | 允夏许可证的三份 imported-draft，确切范围由来源锁决定 |
+| 协议最新工作状态 | 在 [协议仓库](https://github.com/XiaTian-X/YunXia-Agreements) 查看，与本构建快照分别维护 |
 | 项目采用状态 | 格式 3，使用协议 ID、版本、SHA-256 三字段引用 |
 | 运行环境 | Python 3.11+；写入与恢复需要支持 POSIX 文件锁的系统 |
 
@@ -71,15 +77,15 @@ make check
 
 协议仓库使用独立 `.git` 和远端，不是 submodule。父仓只提交来源锁，不提交 `repositories/` 的任何文件或 gitlink。该目录是协议工作区，不是可以自动删除的缓存。
 
-查看协议工作信息与固定目录：
+查看当前工具将打包的固定目录：
 
 ```bash
-python3 -B tooling/yunxia.py agreement --repository repositories/YunXia-Agreements inspect --id yunxia-license
-python3 -B tooling/yunxia.py check --repository repositories/YunXia-Agreements
 python3 -B tooling/yunxia.py project catalog
 ```
 
-首次获取的协议工作树位于远端默认分支，已有工作树在获取时保持原分支。维护命令操作指定协议仓库，构建则读取来源锁指定的提交，不混入协议工作树的未提交内容。来源更新是显式步骤，不自动跟随 main、latest 或推荐项；详见 [开发指南](docs/development.md)。
+首次获取的协议工作树位于远端默认分支，已有工作树在获取时保持原分支。协议工作树、工具锁定的目录快照和已安装 Skill 可能处于不同时间点。构建只读取来源锁指定的提交，不混入工作树修改；来源更新是显式步骤，不自动跟随 main、latest 或推荐项。
+
+维护协议前，按 [固定工具链准备](docs/development.md#toolchain) 取得目标协议仓库指定的工具提交，再读取该提交的维护指南。工具开发时运行当前源码进行测试，不等于目标协议仓库已经升级了工具链。
 
 构建并更新本机 Skill：
 
@@ -124,6 +130,7 @@ make skill-install
 | 立项、修改、审阅和发布协议 | [协议全周期维护](docs/maintenance.md) |
 | 提交推送或继续已有任务 | [Git 阶段约定](docs/maintenance.md#git) · [继续维护](docs/maintenance.md#resume) |
 | 开发、更新来源、构建和安装 | [开发指南](docs/development.md) |
+| 从独立协议仓库启动固定版本工具 | [固定工具链准备](docs/development.md#toolchain) |
 | 阅读具体协议和系列原则 | [协议仓库](https://github.com/XiaTian-X/YunXia-Agreements) |
 | 通过 Agent 适配具体项目 | [Skill 入口](skills/yunxia/SKILL.md) · [项目工作流](skills/yunxia/references/workflow.md) |
 | 恢复项目未完成事务 | [事务恢复](skills/yunxia/references/recovery.md) |

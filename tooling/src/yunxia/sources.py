@@ -192,6 +192,31 @@ def _verify_remote_history(path, row):
         raise CatalogError('SOURCE_HISTORY_REMOTE_CHANGED', [row['id'], retained['ref']])
 
 
+def _verify_remote_tags(path, row, catalog):
+    """A cached local tag is not evidence that a fresh clone can resolve it."""
+    expected = {'refs/tags/' + entry['source']['tag']: entry['source']['commit']
+                for entry in catalog.entries if entry['source']['tag'] is not None}
+    if not expected:
+        return
+    patterns = [pattern for name in sorted(expected) for pattern in (name, name + '^{}')]
+    result = gitstore.run(path, ['ls-remote', '--tags', '--', row['repository'], *patterns], False)
+    if result.returncode:
+        raise CatalogError('SOURCE_TAG_REMOTE_UNAVAILABLE', [row['id']])
+    refs = {}
+    for line in result.stdout.decode().splitlines():
+        fields = line.split()
+        if len(fields) == 2:
+            oid, name = fields
+            if name in refs:
+                raise CatalogError('SOURCE_TAG_REMOTE_CHANGED', [row['id'], name])
+            refs[name] = oid
+    for name, commit in expected.items():
+        if name not in refs:
+            raise CatalogError('SOURCE_TAG_REMOTE_MISSING', [row['id'], name])
+        if refs.get(name + '^{}', refs[name]) != commit:
+            raise CatalogError('SOURCE_TAG_REMOTE_CHANGED', [row['id'], name])
+
+
 def fetch(root, source_id=None, locations=None):
     """Explicit network step; preserve existing working trees and lock bytes."""
     root = Path(root).resolve()
@@ -213,7 +238,8 @@ def fetch(root, source_id=None, locations=None):
                 args.append('--unshallow')
             gitstore.run(path, args + ['origin', '+refs/heads/*:refs/remotes/origin/*'])
         _verify_remote_history(path, row)
-        _catalog(root, row, locations)
+        catalog = _catalog(root, row, locations)
+        _verify_remote_tags(path, row, catalog)
         branch = gitstore.run(path, ['symbolic-ref', '--quiet', '--short', 'HEAD'], False)
         results.append({'id':row['id'], 'path':str(path), 'commit':row['commit'], 'created':created,
                         'working_head':gitstore.head(path),

@@ -482,6 +482,18 @@ class YunXiaWorkflow(unittest.TestCase):
                 self.assertEqual(result.exception.code, expected)
                 self.assertEqual(lock_path.read_bytes(), content)
 
+    def test_project_recovery_rejects_out_of_range_pid_without_traceback(self):
+        yx.private_dir(self.root)
+        path=self.root/'.yunxia/lock.json'
+        content=yx.encoded({'pid':10**100});path.write_bytes(content)
+        before=path.stat()
+        result=self.cli('recover')
+        self.assertEqual(result.returncode,2)
+        self.assertEqual(json.loads(result.stdout)['error'],'INVALID_LOCK')
+        self.assertNotIn('Traceback',result.stderr)
+        self.assertEqual(path.read_bytes(),content)
+        self.assertEqual((path.stat().st_ino,path.stat().st_mtime_ns),(before.st_ino,before.st_mtime_ns))
+
     def test_recovery_guard_blocks_a_second_process_before_pid_probe(self):
         yx.private_dir(self.root)
         lock_path = self.root / '.yunxia/lock.json'

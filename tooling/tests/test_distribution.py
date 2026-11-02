@@ -85,6 +85,126 @@ class Distribution(unittest.TestCase):
         self.assertEqual(cm.exception.code,'BUILD_REQUIRED')
         self.assertEqual((target/'keep').read_text(),'keep')
 
+    def test_install_preserves_target_edits_during_staging(self):
+        d.build(self.root)
+        for change in ('added','content','mode','manifest'):
+            with self.subTest(change=change):
+                target=self.base/change/'yunxia';target.mkdir(parents=True)
+                self.old_skill_marker(target);(target/'keep').write_bytes(b'original')
+                (target/'keep').chmod(0o600)
+                original=d.write_files
+                def edited(destination,files):
+                    original(destination,files)
+                    if destination.name=='next':
+                        if change=='added':(target/'human-edit').write_bytes(b'keep human edit')
+                        elif change=='content':(target/'keep').write_bytes(b'changed by human')
+                        elif change=='mode':(target/'keep').chmod(0o640)
+                        else:(target/'BUILD.json').write_text('new human manifest')
+                with patch.object(d,'write_files',side_effect=edited),self.assertRaises(CatalogError) as caught:
+                    d.install(self.root,target,True)
+                self.assertEqual(caught.exception.code,'INSTALL_TARGET_CHANGED')
+                self.assertIn('Old test installation',(target/'SKILL.md').read_text())
+                if change=='added':self.assertEqual((target/'human-edit').read_bytes(),b'keep human edit')
+                elif change=='content':self.assertEqual((target/'keep').read_bytes(),b'changed by human')
+                elif change=='mode':self.assertEqual((target/'keep').stat().st_mode & 0o777,0o640)
+                else:self.assertEqual((target/'BUILD.json').read_text(),'new human manifest')
+                self.assertEqual(list(target.parent.glob('.yunxia-install-*')),[])
+
+    def test_install_rechecks_moved_original_and_restores_concurrent_edit(self):
+        d.build(self.root)
+        target=self.base/'skills/yunxia';target.mkdir(parents=True);self.old_skill_marker(target)
+        original=Path.rename
+        def edited(path,destination):
+            result=original(path,destination)
+            if path==target and Path(destination).name=='previous':
+                (Path(destination)/'human-edit').write_bytes(b'preserve edit after rename')
+            return result
+        with patch.object(Path,'rename',edited),self.assertRaises(CatalogError) as caught:
+            d.install(self.root,target,True)
+        self.assertEqual(caught.exception.code,'INSTALL_TARGET_CHANGED')
+        self.assertEqual((target/'human-edit').read_bytes(),b'preserve edit after rename')
+        self.assertIn('Old test installation',(target/'SKILL.md').read_text())
+        self.assertEqual(list(target.parent.glob('.yunxia-install-*')),[])
+
+    def test_install_preserves_late_edits_to_previous_tree(self):
+        d.build(self.root)
+        target=self.base/'skills/yunxia';target.mkdir(parents=True);self.old_skill_marker(target)
+        original=d.validate
+        def edited(path):
+            result=original(path)
+            if path==target:
+                previous=next(target.parent.glob('.yunxia-install-*/previous'))
+                (previous/'human-edit').write_bytes(b'preserve late edit')
+            return result
+        with patch.object(d,'validate',side_effect=edited),self.assertRaises(CatalogError) as caught:
+            d.install(self.root,target,True)
+        self.assertEqual(caught.exception.code,'INSTALL_TARGET_CHANGED')
+        self.assertEqual((target/'human-edit').read_bytes(),b'preserve late edit')
+        self.assertIn('Old test installation',(target/'SKILL.md').read_text())
+        self.assertTrue(Path(caught.exception.paths[1]).is_dir())
+
+    def test_install_does_not_read_symlinked_external_target_files(self):
+        d.build(self.root)
+        target=self.base/'skills/yunxia';target.mkdir(parents=True);self.old_skill_marker(target)
+        external=self.base/'private-external';external.mkdir()
+        private=external/'private.txt';private.write_bytes(b'not part of this installation')
+        (target/'external').symlink_to(external,target_is_directory=True)
+        original=Path.read_bytes
+        def protected(path):
+            if path.resolve()==private:raise AssertionError('External target content must not be read')
+            return original(path)
+        with patch.object(Path,'read_bytes',protected):d.install(self.root,target,True)
+        self.assertEqual(private.read_bytes(),b'not part of this installation')
+
+    def test_install_rejects_target_file_replaced_by_symlink_during_snapshot(self):
+        d.build(self.root)
+        target=self.base/'skills/yunxia';target.mkdir(parents=True);self.old_skill_marker(target)
+        current=target/'keep';current.write_bytes(b'original')
+        external=self.base/'private-external';external.write_bytes(b'private external content')
+        original=os.open;changed=False
+        def swapped(path,flags,*args,**kwargs):
+            nonlocal changed
+            if Path(path)==current and not changed:
+                changed=True;current.unlink();current.symlink_to(external)
+            return original(path,flags,*args,**kwargs)
+        with patch.object(os,'open',swapped),self.assertRaises(CatalogError) as caught:
+            d.install(self.root,target,True)
+        self.assertEqual(caught.exception.code,'INSTALL_TARGET_CHANGED')
+        self.assertTrue(current.is_symlink())
+        self.assertEqual(external.read_bytes(),b'private external content')
+
+    def test_different_tool_checkouts_cannot_install_same_target_concurrently(self):
+        d.build(self.root)
+        other=copy_tool(self.base/'other-tool');d.build(other)
+        target=self.base/'skills/yunxia';target.mkdir(parents=True);self.old_skill_marker(target)
+        script="""
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from yunxia import distribution
+original = distribution.write_files
+def paused(destination, files):
+    original(destination, files)
+    if destination.name == 'next':
+        print('ready', flush=True)
+        sys.stdin.read()
+distribution.write_files = paused
+distribution.install(Path(sys.argv[2]), Path(sys.argv[3]), True)
+"""
+        process=subprocess.Popen([sys.executable,'-B','-c',script,str(ROOT/'tooling/src'),str(self.root),str(target)],
+                                 stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            self.assertEqual(process.stdout.readline().strip(),'ready')
+            with self.assertRaises(CatalogError) as caught:d.install(other,target,True)
+            self.assertEqual(caught.exception.code,'INSTALL_LOCKED')
+            self.assertIn('Old test installation',(target/'SKILL.md').read_text())
+            stdout,stderr=process.communicate(timeout=20)
+            self.assertEqual(process.returncode,0,stdout+stderr)
+            self.assertEqual(d.inventory(target),d.inventory(self.root/'dist/skills/yunxia'))
+        finally:
+            if process.poll() is None:process.kill()
+            process.communicate(timeout=10)
+
     def test_install_activation_failure_restores_old_tree(self):
         d.build(self.root);target=self.base/'skills/yunxia';target.mkdir(parents=True);(target/'keep').write_text('keep')
         self.old_skill_marker(target)

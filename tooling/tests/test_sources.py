@@ -256,5 +256,29 @@ class Sources(unittest.TestCase):
             self.error('SOURCE_HISTORY_REMOTE_CHANGED',sources.fetch,self.root)
         self.assertEqual(self.lock.read_bytes(),before)
 
+    def test_fetch_cannot_use_cached_tag_after_remote_deletion(self):
+        add_protocol(self.protocol)
+        pin=git_commit(self.protocol,'Add a fixed candidate')
+        lock=sources.read_lock(self.root);lock['sources'][0]['commit']=pin;self.write_lock(lock)
+        before=self.lock.read_bytes();signature=distribution.source_signature(self.root)
+        bare=self.base/'tagged-origin.git'
+        subprocess.run(['git','clone','--bare','--no-hardlinks',str(self.protocol),str(bare)],
+                       check=True,capture_output=True)
+        tag='refs/tags/fixture/v1.0.0-rc.1'
+        source=Catalog(self.protocol,commit=pin).select('fixture','1.0.0-rc.1')['source']['commit']
+        tag_object=gitstore.run(bare,['rev-parse',tag]).stdout.decode().strip()
+        self.assertNotEqual(tag_object,source)  # The remote comparison must peel annotated tags.
+        with patch.object(gitstore,'run',side_effect=self.transport_to(bare)):
+            self.assertFalse(sources.fetch(self.root)['lock_changed'])
+        gitstore.run(bare,['update-ref','-d',tag])
+        with patch.object(gitstore,'run',side_effect=self.transport_to(bare)):
+            self.error('SOURCE_TAG_REMOTE_MISSING',sources.fetch,self.root)
+        self.assertEqual(gitstore.run(self.protocol,['rev-parse',tag]).stdout.decode().strip(),tag_object)
+        self.assertEqual(self.lock.read_bytes(),before)
+        self.assertEqual(distribution.source_signature(self.root),signature)
+        fresh=self.base/'without-tag'
+        subprocess.run(['git','clone','--quiet',bare.as_uri(),str(fresh)],check=True)
+        self.error('GIT_TAG_MISSING',Catalog,fresh,commit=pin)
+
 
 if __name__=='__main__':unittest.main()

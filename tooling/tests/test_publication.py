@@ -19,6 +19,7 @@ class FakeGitHub:
     """A remote store, independent of local intent and completion writes."""
     def __init__(self):
         self.pushed={};self.tags={};self.sources=set();self.current=None;self.contents={}
+        self.history_refs={}
         self.created=0;self.uploaded=0;self.published=0;self.fail_upload=False
 
     def verify_registry(self, commit, path, expected):
@@ -31,6 +32,9 @@ class FakeGitHub:
     def tag_commit(self, tag):return self.tags.get(tag)
     def verify_source(self, commit):
         if commit not in self.sources:raise CatalogError('PUBLICATION_SOURCE_NOT_PUSHED')
+    def verify_history_ref(self, ref, commit):
+        if ref not in self.history_refs:raise CatalogError('PUBLICATION_HISTORY_NOT_PUSHED',[ref])
+        if self.history_refs[ref]!=commit:raise CatalogError('PUBLICATION_HISTORY_CONFLICT',[ref])
     def release(self, tag):return copy.deepcopy(self.current)
 
     def create_draft(self, tag, commit, title, notes):
@@ -351,6 +355,27 @@ class GitHubTransport(unittest.TestCase):
                 backend.verify_source(commit)
             self.assertEqual(cm.exception.code,code)
         with patch.object(backend,'api',return_value={'sha':commit}):backend.verify_source(commit)
+
+    def test_history_ref_requires_exact_branch_commit_and_valid_response(self):
+        from yunxia.github import GitHub
+        backend=GitHub('fixture/repository')
+        ref='refs/heads/history/pre-split';commit='a'*40
+        valid={'ref':ref,'object':{'type':'commit','sha':commit}}
+        with patch.object(backend,'api',return_value=valid) as api:
+            backend.verify_history_ref(ref,commit)
+        api.assert_called_once_with('repos/fixture/repository/git/ref/heads/history/pre-split',missing=True)
+        cases=[(None,'PUBLICATION_HISTORY_NOT_PUSHED'),
+               ({'ref':ref,'object':{'type':'commit','sha':'b'*40}},'PUBLICATION_HISTORY_CONFLICT'),
+               ({'ref':'refs/heads/other','object':valid['object']},'GITHUB_RESPONSE_INVALID'),
+               ({'ref':ref,'object':{'type':'tag','sha':commit}},'GITHUB_RESPONSE_INVALID'),
+               ({'ref':ref,'object':{'type':'commit','sha':'short'}},'GITHUB_RESPONSE_INVALID')]
+        for response,code in cases:
+            with self.subTest(response=response),patch.object(backend,'api',return_value=response):
+                with self.assertRaises(CatalogError) as cm:backend.verify_history_ref(ref,commit)
+                self.assertEqual(cm.exception.code,code)
+        with patch.object(backend,'api') as api:
+            with self.assertRaises(CatalogError):backend.verify_history_ref('refs/heads/history/../outside',commit)
+            api.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

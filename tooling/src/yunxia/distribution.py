@@ -1,10 +1,12 @@
 """Reproducible standalone Skill builds and recoverable local installation."""
 from pathlib import Path
+import os
 import shutil
+import stat
 import tempfile
 import re
 from .catalog import Catalog
-from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded, canonical_sha256, valid_relative_path, atomic_write
+from .common import CatalogError, read_json, safe_path, sha256, json_bytes as encoded, canonical_sha256, valid_relative_path, atomic_write, exclusive_guard
 from .sources import load_catalog
 from . import VERSION
 
@@ -143,6 +145,45 @@ def build(root):
             shutil.rmtree(work)
 
 
+def _installation_image(root):
+    """Capture an installed tree without following links outside that tree."""
+    if not root.exists() and not root.is_symlink():
+        return None
+    if root.is_symlink() or not root.is_dir():
+        raise CatalogError('INSTALL_PATH_INVALID', [str(root)])
+    result = {}
+    for path in [root, *sorted(root.rglob('*'))]:
+        before = path.lstat()
+        mode = stat.S_IMODE(before.st_mode)
+        if stat.S_ISLNK(before.st_mode):
+            value = ('link', mode, os.readlink(path))
+        elif stat.S_ISREG(before.st_mode):
+            flags=os.O_RDONLY | getattr(os,'O_NOFOLLOW',0) | getattr(os,'O_NONBLOCK',0)
+            try:
+                fd=os.open(path,flags)
+                with os.fdopen(fd,'rb') as stream:
+                    opened=os.fstat(stream.fileno())
+                    if not stat.S_ISREG(opened.st_mode) or (opened.st_dev,opened.st_ino)!=(before.st_dev,before.st_ino):
+                        raise CatalogError('INSTALL_TARGET_CHANGED',[str(root)])
+                    content=stream.read()
+                    finished=os.fstat(stream.fileno())
+                if (opened.st_size,opened.st_mode,opened.st_mtime_ns)!=(finished.st_size,finished.st_mode,finished.st_mtime_ns):
+                    raise CatalogError('INSTALL_TARGET_CHANGED',[str(root)])
+            except OSError:
+                raise CatalogError('INSTALL_TARGET_CHANGED',[str(root)]) from None
+            value = ('file', mode, sha256(content))
+        elif stat.S_ISDIR(before.st_mode):
+            value = ('directory', mode)
+        else:
+            raise CatalogError('INSTALL_TARGET_NOT_SKILL', [str(path)])
+        after = path.lstat()
+        if ((before.st_dev, before.st_ino, before.st_mode, before.st_size, before.st_mtime_ns)
+                != (after.st_dev, after.st_ino, after.st_mode, after.st_size, after.st_mtime_ns)):
+            raise CatalogError('INSTALL_TARGET_CHANGED', [str(root)])
+        result[path.relative_to(root).as_posix()] = value
+    return result
+
+
 def install(root, destination, update=False):
     if destination.is_symlink():
         raise CatalogError('INSTALL_PATH_INVALID')
@@ -150,6 +191,14 @@ def install(root, destination, update=False):
     root=root.resolve()
     if destination == root or destination in root.parents or root in destination.parents:
         raise CatalogError('INSTALL_SOURCE_OVERLAP')
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    # A source-repository lock cannot serialize installs from another checkout.
+    guard=safe_path(destination.parent,'.yunxia-install.guard')
+    with exclusive_guard(guard, code='INSTALL_LOCKED', paths=[str(destination)]):
+        return _install(root,destination,update)
+
+
+def _install(root, destination, update):
     if destination.exists() and not update:raise CatalogError('INSTALL_EXISTS_USE_UPDATE')
     if destination.exists():
         if not destination.is_dir():
@@ -161,6 +210,7 @@ def install(root, destination, update=False):
             frontmatter=instruction.read_text(encoding='utf-8').split('---',2)
             if len(frontmatter)<3 or frontmatter[0].strip() or not re.search(r'''(?m)^name:\s*["']?yunxia["']?\s*$''',frontmatter[1]):
                 raise CatalogError('INSTALL_TARGET_NOT_SKILL')
+    before_target=_installation_image(destination)
     package=safe_path(root,'dist/skills/yunxia');manifest=validate(package)
     snapshot=source_snapshot(root)
     if manifest['source_sha256']!=snapshot['source_sha256'] or manifest['inputs']!=snapshot['inputs'] or manifest['files']!={rel:sha256(content) for rel,content in snapshot['files'].items()}:
@@ -182,6 +232,8 @@ def install(root, destination, update=False):
             raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
         if manifest['source_sha256'] != source_signature(root):
             raise CatalogError('INSTALL_SOURCE_CHANGED')
+        if _installation_image(destination) != before_target:
+            raise CatalogError('INSTALL_TARGET_CHANGED',[str(destination)])
         had_previous=destination.exists()
         previous=temp/'previous' if had_previous else None
         atomic_write(temp/'transaction.json', encoded({'format_version':1,
@@ -193,9 +245,15 @@ def install(root, destination, update=False):
         try:
             if previous is not None:
                 destination.rename(previous)
+                if _installation_image(previous) != before_target:
+                    raise CatalogError('INSTALL_TARGET_CHANGED',[str(destination)])
+            elif destination.exists() or destination.is_symlink():
+                raise CatalogError('INSTALL_TARGET_CHANGED',[str(destination)])
             candidate.rename(destination)
             validate(destination)
-        except BaseException:
+            if previous is not None and _installation_image(previous) != before_target:
+                raise CatalogError('INSTALL_TARGET_CHANGED',[str(previous)])
+        except BaseException as error:
             failed=None
             # A rename may have completed and then raised (e.g. SIGINT). Inspect
             # paths rather than assuming a Python flag was assigned afterwards.
@@ -215,6 +273,8 @@ def install(root, destination, update=False):
             if had_previous and not destination.exists():
                 raise CatalogError('INSTALL_RECOVERY_REQUIRED',[str(destination),str(temp)]) from None
             if failed:
+                if isinstance(error,CatalogError) and error.code=='INSTALL_TARGET_CHANGED':
+                    raise CatalogError('INSTALL_TARGET_CHANGED',[str(destination),str(failed)]) from None
                 raise CatalogError('INSTALL_VERIFICATION_FAILED',[str(failed)]) from None
             preserve=False
             raise

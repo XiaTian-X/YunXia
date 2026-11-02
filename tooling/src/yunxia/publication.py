@@ -199,6 +199,9 @@ def _committed_registry(root, record, backend):
                 if metadata.get(key) is not None:pending.append(catalog.resolve(metadata[key]))
     for rel,content in sorted(contents.items()):backend.verify_registry(commit,rel,content)
     for source_commit in sorted(untagged_sources):backend.verify_source(source_commit)
+    if catalog.migration is not None:
+        retained=catalog.migration['retained_history']
+        backend.verify_history_ref(retained['ref'],retained['commit'])
     for tag,expected in sorted(tags.items()):
         actual=backend.tag_commit(tag)
         if actual is None:raise CatalogError('PUBLICATION_DEPENDENCY_TAG_NOT_PUSHED',[tag])

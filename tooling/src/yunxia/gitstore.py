@@ -83,19 +83,31 @@ def validate_tag(tag):
         raise CatalogError('GIT_TAG_INVALID')
 
 
-def verify_tag(root, tag, commit):
+def tag_commit(root, tag):
+    """Resolve an existing fixed tag without recreating its object or annotation."""
     validate_tag(tag)
-    if not isinstance(commit,str) or not OID.fullmatch(commit): raise CatalogError('GIT_COMMIT_INVALID')
     result=run(root,['rev-parse','--verify','refs/tags/'+tag+'^{commit}'],False)
-    if result.returncode: raise CatalogError('GIT_TAG_MISSING',[tag])
-    if result.stdout.decode().strip()!=commit: raise CatalogError('GIT_TAG_CONFLICT',[tag])
+    if result.returncode:
+        if run(root,['show-ref','--verify','--quiet','refs/tags/'+tag],False).returncode==0:
+            raise CatalogError('GIT_TAG_CONFLICT',[tag])
+        return None
+    value=result.stdout.decode().strip()
+    if not OID.fullmatch(value):raise CatalogError('GIT_TAG_CONFLICT',[tag])
+    return value
+
+
+def verify_tag(root, tag, commit):
+    if not isinstance(commit,str) or not OID.fullmatch(commit): raise CatalogError('GIT_COMMIT_INVALID')
+    actual=tag_commit(root,tag)
+    if actual is None: raise CatalogError('GIT_TAG_MISSING',[tag])
+    if actual!=commit: raise CatalogError('GIT_TAG_CONFLICT',[tag])
     return True
 
 
 def ensure_tag(root, tag, commit):
     validate_tag(tag)
     if not isinstance(commit,str) or not OID.fullmatch(commit): raise CatalogError('GIT_COMMIT_INVALID')
-    exists=run(root,['show-ref','--verify','--quiet','refs/tags/'+tag],False).returncode==0
+    exists=tag_commit(root,tag) is not None
     if not exists:
         run(root,['-c','tag.gpgSign=false','tag','-a',tag,commit,'-m','Fixed protocol version '+tag])
     verify_tag(root,tag,commit)

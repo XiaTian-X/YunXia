@@ -27,7 +27,7 @@ def main(argv=None):
     try:
         if args.command=='repository':
             from . import gitstore
-            from .common import segment, atomic_write
+            from .common import segment, atomic_write, atomic_create
             p=argparse.ArgumentParser(prog='yunxia repository')
             p.add_argument('action',choices=['init']);p.add_argument('--id',required=True)
             a=p.parse_args(tail)
@@ -36,12 +36,17 @@ def main(argv=None):
             with life.locked(root):
                 path=safe_path(root,'repository.json')
                 if path.exists():raise CatalogError('REPOSITORY_ALREADY_INITIALIZED')
-                if (root/'sources.lock.json').exists():raise CatalogError('REPOSITORY_IS_TOOL_SOURCE')
-                atomic_write(path,life.encoded({'format_version':1,'repository_id':a.id,'migration':None}),mode=0o644)
+                if (root/'sources.lock.json').exists() or (root/'sources.lock.json').is_symlink():raise CatalogError('REPOSITORY_IS_TOOL_SOURCE')
                 ignore=safe_path(root,'.gitignore')
                 content=ignore.read_bytes() if ignore.exists() else b''
                 if b'.yunxia-*' not in content.splitlines():
                     atomic_write(ignore,content.rstrip(b'\n')+b'\n.yunxia-*\n',mode=0o644)
+                # Publish the identity last. An interrupted preparation remains
+                # retryable, and an independently created marker is never replaced.
+                try:
+                    atomic_create(path,life.encoded({'format_version':1,'repository_id':a.id,'migration':None}),mode=0o644)
+                except FileExistsError:
+                    raise CatalogError('REPOSITORY_ALREADY_INITIALIZED') from None
             result={'initialized':str(root),'repository_id':a.id}
         elif args.command=='source':
             from . import sources

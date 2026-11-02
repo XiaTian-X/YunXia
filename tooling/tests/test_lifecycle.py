@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tooling/src'))
-from yunxia import lifecycle as life
+from yunxia import lifecycle as life, gitstore
 from yunxia.catalog import Catalog, reference
 from yunxia.common import CatalogError, sha256
 from support import write_repository, copy_catalog, copy_tool
@@ -84,6 +84,64 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(life.inspect(self.root,'fixture')['source_sha256'],original)
         life.freeze(self.root,'fixture','rc1','notes')
         self.assertEqual(Catalog(self.root).select('fixture','rc1')['_text'],b'Test terms version 1.0.0\n')
+
+    def test_new_protocol_cannot_freeze_with_missing_historical_registry(self):
+        self.root=copy_catalog(Path(self.temp.name)/'with-history')
+        life.create(self.root,'fixture','Fixture','Test only',b'Test terms\n','1.0.0')
+        self.approve()
+        (self.root/'registry/yunxia-license/0.9.2-draft.1.json').unlink()
+        self.error('REGISTRY_RECORD_MISSING',life.freeze,self.root,'fixture','rc1','notes')
+        self.assertIsNone(gitstore.tag_commit(self.root,'fixture/vrc1'))
+        self.assertFalse((self.root/'registry/fixture/rc1.json').exists())
+
+    def test_freeze_retry_preserves_original_tag_after_registry_write_failure(self):
+        self.approve();source=gitstore.head(self.root)
+        with patch.object(life,'write',side_effect=OSError('Interrupted registry write')):
+            with self.assertRaises(OSError):life.freeze(self.root,'fixture','rc1','Fixed notes')
+        tag='fixture/vrc1'
+        before=gitstore.run(self.root,['rev-parse','refs/tags/'+tag]).stdout
+        (self.root/'unrelated.txt').write_text('A later unrelated task\n');self.commit()
+        result=life.freeze(self.root,'fixture','rc1','Fixed notes')
+        self.assertEqual(result['source_commit'],source)
+        self.assertEqual(gitstore.run(self.root,['rev-parse','refs/tags/'+tag]).stdout,before)
+        self.assertEqual(Catalog(self.root).select('fixture','rc1')['source']['commit'],source)
+
+    def test_freeze_process_death_before_registry_can_resume_after_lock_recovery(self):
+        (self.root/'.gitignore').write_text('.yunxia-*\n')
+        self.approve();source=gitstore.head(self.root)
+        script="""
+import os, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+from yunxia import lifecycle
+def interrupted(*args):
+    os._exit(71)
+lifecycle.write=interrupted
+root=Path(sys.argv[1])
+with lifecycle.locked(root):
+    lifecycle.freeze(root,'fixture','rc1','Fixed notes')
+"""
+        result=subprocess.run([sys.executable,'-B','-c',script,str(self.root),str(ROOT/'tooling/src')],capture_output=True)
+        self.assertEqual(result.returncode,71,result.stderr)
+        self.assertFalse((self.root/'registry/fixture/rc1.json').exists())
+        self.assertEqual(gitstore.tag_commit(self.root,'fixture/vrc1'),source)
+        self.assertTrue(life.recover_lock(self.root)['lock_recovered'])
+        (self.root/'unrelated.txt').write_text('A later unrelated task\n');self.commit()
+        with life.locked(self.root):result=life.freeze(self.root,'fixture','rc1','Fixed notes')
+        self.assertEqual(result['source_commit'],source)
+        self.assertEqual(Catalog(self.root).select('fixture','rc1')['notes'],'Fixed notes')
+
+    def test_freeze_retry_rejects_new_review_materials_without_moving_original_tag(self):
+        self.approve()
+        with patch.object(life,'write',side_effect=OSError('Interrupted registry write')):
+            with self.assertRaises(OSError):life.freeze(self.root,'fixture','rc1','Fixed notes')
+        tag='fixture/vrc1';before=gitstore.run(self.root,['rev-parse','refs/tags/'+tag]).stdout
+        template=self.root/'agreements/fixture/templates/new.md'
+        template.parent.mkdir();template.write_text('New review material; unchanged body\n')
+        self.approve()
+        self.error('REVIEW_NOT_COMMITTED',life.freeze,self.root,'fixture','rc1','Fixed notes')
+        self.assertEqual(gitstore.run(self.root,['rev-parse','refs/tags/'+tag]).stdout,before)
+        self.assertFalse((self.root/'registry/fixture/rc1.json').exists())
 
     def check_uncommitted_review_file_deletion(self, relative, content):
         material=self.root/'agreements/fixture'/relative
@@ -310,6 +368,15 @@ with lifecycle.locked(Path(sys.argv[1])):
                 self.error(code,life.recover_lock,self.root)
                 self.assertEqual(path.read_bytes(),content)
         path.unlink()
+
+    def test_recovery_preserves_pid_outside_operating_system_range(self):
+        path=self.root/'.yunxia-maintenance.lock'
+        original=life.encoded({'pid':10**100});path.write_bytes(original)
+        before=path.stat()
+        self.error('MAINTENANCE_LOCK_INVALID',life.recover_lock,self.root)
+        self.assertEqual(path.read_bytes(),original)
+        after=path.stat()
+        self.assertEqual((after.st_ino,after.st_mtime_ns),(before.st_ino,before.st_mtime_ns))
 
     def test_only_dead_maintenance_lock_can_be_recovered(self):
         (self.root/'.yunxia-maintenance.lock').write_bytes(life.encoded({'pid':123456789}))

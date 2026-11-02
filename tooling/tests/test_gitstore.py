@@ -74,6 +74,15 @@ class GitObjects(unittest.TestCase):
         self.assertEqual(cm.exception.code,'GIT_TAG_CONFLICT')
         self.assertTrue(g.verify_tag(self.root,'fixture/v1.0.0',self.commit))
 
+    def test_noncommit_tag_cannot_be_reused_or_replaced(self):
+        blob=self.git('rev-parse',self.commit+':nested/text.txt').decode().strip()
+        self.git('update-ref','refs/tags/fixture/vblob',blob)
+        for operation in (lambda:g.tag_commit(self.root,'fixture/vblob'),
+                          lambda:g.ensure_tag(self.root,'fixture/vblob',self.commit)):
+            with self.assertRaises(CatalogError) as cm:operation()
+            self.assertEqual(cm.exception.code,'GIT_TAG_CONFLICT')
+        self.assertEqual(self.git('rev-parse','refs/tags/fixture/vblob').decode().strip(),blob)
+
     def test_git_environment_cannot_redirect_repository(self):
         with patch.dict(os.environ,{'GIT_DIR':'/missing','GIT_WORK_TREE':'/missing','GIT_CONFIG_COUNT':'1','GIT_CONFIG_KEY_0':'core.bare','GIT_CONFIG_VALUE_0':'true'}):
             self.assertEqual(g.read_blob(self.root,self.commit,'nested/text.txt'),b'fixed\r\nbytes\n')

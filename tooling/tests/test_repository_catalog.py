@@ -13,6 +13,7 @@ sys.path.insert(0,str(ROOT/'tooling/src'))
 from yunxia.catalog import Catalog, MIGRATION_PATH, reference
 from yunxia.common import CatalogError, json_bytes, sha256
 from yunxia import gitstore, lifecycle as life, publication
+from test_publication import FakeGitHub
 
 
 class ProtocolRepositoryCatalog(unittest.TestCase):
@@ -185,6 +186,38 @@ class ProtocolRepositoryCatalog(unittest.TestCase):
         paths={call.args[1] for call in backend.verify_registry.call_args_list}
         self.assertTrue({'repository.json',MIGRATION_PATH}<=paths)
         backend.verify_source.assert_any_call(self.cutoff)
+        backend.verify_history_ref.assert_called_once_with('refs/heads/history/pre-split',self.cutoff)
+
+    def test_publish_rejects_missing_or_changed_remote_history_before_side_effects(self):
+        self.split()
+        candidate=Catalog(self.root).resolve(self.ref)
+        decision={'date':'2026-11-02','confirmed_by':'Fixture maintainer','basis':'Fictional test only',
+                  'candidate_sha256':candidate['_package_sha256']}
+        publication.prepare(self.root,'fixture','1.0.0-rc.1','1.0.0','github-release','fixture/repository',decision)
+        commit=self.commit('Prepared fictional publication')
+        backend=FakeGitHub();catalog=Catalog(self.root)
+        for rel in catalog.inputs:backend.pushed[(commit,rel)]=gitstore.read_blob(self.root,commit,rel)
+        backend.sources.add(self.cutoff)
+        for entry in catalog.entries:
+            backend.sources.add(entry['source']['commit'])
+            if entry['source']['tag']:backend.tags[entry['source']['tag']]=entry['source']['commit']
+        record=self.root/'registry/fixture/1.0.0.json';before=record.read_bytes()
+        for actual,code in ((None,'PUBLICATION_HISTORY_NOT_PUSHED'),(commit,'PUBLICATION_HISTORY_CONFLICT')):
+            with self.subTest(remote_history=actual):
+                backend.history_refs={} if actual is None else {'refs/heads/history/pre-split':actual}
+                self.reject(code,lambda:life.publish_github(self.root,'fixture','1.0.0-rc.1','1.0.0',
+                                                          'fixture/repository',decision,backend))
+                self.assertEqual((backend.created,backend.uploaded,backend.published),(0,0,0))
+                self.assertEqual(record.read_bytes(),before)
+        backend.history_refs={'refs/heads/history/pre-split':self.cutoff}
+        result=life.publish_github(self.root,'fixture','1.0.0-rc.1','1.0.0','fixture/repository',decision,backend)
+        self.assertTrue(result['delivery_verified'])
+        commit=self.commit('Completed fictional publication')
+        for rel in Catalog(self.root).inputs:backend.pushed[(commit,rel)]=gitstore.read_blob(self.root,commit,rel)
+        before=record.read_bytes();backend.history_refs={}
+        self.reject('PUBLICATION_HISTORY_NOT_PUSHED',lambda:life.verify_publication(self.root,'fixture','1.0.0',backend))
+        self.assertEqual(record.read_bytes(),before)
+        self.assertEqual(json.loads(before)['status'],'released')
 
     def test_rename_changes_current_metadata_only_and_clears_review(self):
         text=(self.root/'agreements/fixture/text.txt').read_bytes()
