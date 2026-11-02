@@ -65,6 +65,23 @@ def validate_review_record(review):
     return review
 
 
+def validate_committed_review_files(root, commit, agreement_id, files, *,
+                                    code='RELEASE_REVIEW_INVALID', paths=None):
+    """Require the review to cover the complete material set in the fixed tree."""
+    prefix = f'agreements/{agreement_id}/'
+    tree = gitstore.list_tree(root, commit, prefix.rstrip('/'))
+    names = {'text.txt', 'README.md', 'design.md', 'review.md', 'adoption.md'}
+    if prefix+'cases.json' in tree:
+        names.add('cases.json')
+    for path, (mode, kind, oid) in tree.items():
+        if path == prefix+'templates' or path.startswith(prefix+'templates/'):
+            if mode not in ('100644', '100755') or kind != 'blob':
+                raise CatalogError(code, paths)
+            names.add(path[len(prefix):])
+    if names != set(files):
+        raise CatalogError(code, paths)
+
+
 def child_directories(root, relative):
     """Do not silently hide an incomplete record or follow a directory symlink."""
     parent = safe_path(root, relative)
@@ -346,14 +363,7 @@ class Catalog:
         if set(validate_review_dependencies(metadata.get('review_dependencies',[])))!=set(dependencies):raise CatalogError('RELEASE_REVIEW_INVALID',[rel])
         for path,expected in dependencies.items():self._blob(s['commit'],path,expected)
         if not self.bundled:
-            tree=gitstore.list_tree(self.root,s['commit'],prefix.rstrip('/'))
-            names={'text.txt','README.md','design.md','review.md','adoption.md'}
-            if prefix+'cases.json' in tree:names.add('cases.json')
-            for path,(mode,kind,oid) in tree.items():
-                if path==prefix+'templates' or path.startswith(prefix+'templates/'):
-                    if mode not in ('100644','100755') or kind!='blob':raise CatalogError('RELEASE_REVIEW_INVALID',[rel])
-                    names.add(path[len(prefix):])
-            if names!=set(fs):raise CatalogError('RELEASE_REVIEW_INVALID',[rel])
+            validate_committed_review_files(self.root, s['commit'], m['agreement_id'], fs, paths=[rel])
         for name,expected in fs.items():self._blob(s['commit'],f"agreements/{m['agreement_id']}/{name}",expected)
         if a.get('base') is not None:bases.append((a['base'],rel))
 

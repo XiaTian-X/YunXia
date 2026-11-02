@@ -5,9 +5,9 @@ from pathlib import Path
 import os
 import shutil
 import tempfile
-from ..catalog import Catalog, reference, validate_reference, validate_review_record, validate_review_dependencies
+from ..catalog import Catalog, reference, validate_reference, validate_review_record, validate_review_dependencies, validate_committed_review_files
 from .. import gitstore
-from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded, atomic_write, canonical_sha256, parse_json, exclusive_guard
+from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded, atomic_write, atomic_create, canonical_sha256, parse_json, exclusive_guard
 
 
 def write(path, content):
@@ -19,12 +19,10 @@ def locked(root):
     p = safe_path(root, '.yunxia-maintenance.lock')
     with exclusive_guard(safe_path(root, '.yunxia-maintenance.guard'), code='MAINTENANCE_LOCKED'):
         try:
-            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            atomic_create(p, encoded({'pid':os.getpid()}))
         except FileExistsError:
             raise CatalogError('MAINTENANCE_LOCKED') from None
         try:
-            with os.fdopen(fd,'wb') as stream:
-                stream.write(encoded({'pid':os.getpid()}));stream.flush();os.fsync(stream.fileno())
             yield
         finally:
             p.unlink()
@@ -233,6 +231,8 @@ def freeze(root, aid, version, notes):
         raise CatalogError('REVIEW_SOURCE_CHANGED')
     for rel, expected in info['source_snapshot'].get('dependencies', {}).items():
         gitstore.read_blob(root, commit, rel, expected)
+    validate_committed_review_files(root, commit, aid, info['source_snapshot']['files'],
+                                    code='REVIEW_SOURCE_CHANGED')
     for rel, expected in info['source_snapshot']['files'].items():
         gitstore.read_blob(root, commit, f'agreements/{aid}/{rel}', expected)
     source_files = {'text.txt': f'agreements/{aid}/text.txt', 'adoption.md': f'agreements/{aid}/adoption.md'}

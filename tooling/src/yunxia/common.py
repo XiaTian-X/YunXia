@@ -102,8 +102,7 @@ def read_json(path):
         raise CatalogError('CATALOG_FORMAT') from None
 
 
-def atomic_write(path, content, mode=0o600):
-    """Replace a file only after its complete contents have reached the filesystem."""
+def _atomic_file(path, content, mode, *, replace):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, name = tempfile.mkstemp(prefix='.yunxia-write-', dir=path.parent)
     try:
@@ -112,7 +111,20 @@ def atomic_write(path, content, mode=0o600):
             stream.write(content)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(name, path)
+        if replace:
+            os.replace(name, path)
+        else:
+            os.link(name, path)
     finally:
         if os.path.exists(name):
             os.unlink(name)
+
+
+def atomic_write(path, content, mode=0o600):
+    """Replace a file only after its complete contents have reached the filesystem."""
+    _atomic_file(path, content, mode, replace=True)
+
+
+def atomic_create(path, content, mode=0o600):
+    """Publish a complete file atomically, without replacing an existing path."""
+    _atomic_file(path, content, mode, replace=False)

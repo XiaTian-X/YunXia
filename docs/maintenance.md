@@ -31,7 +31,7 @@ python3 -B tooling/yunxia.py agreement review --id example-license --input /priv
 
 review.json必须有source_sha256（inspect返回）、reviewer、date、decision（approved或changes-required）、basis和open_issues。approved不能带未解决事项。摘要绑定正文、定位、设计、审阅分析、采用指南、存在的场景和模板，以及修订基线；材料改变后旧批准失效。批准记录自身和推荐等管理状态不参与递归摘要。工具记录实际提供的审阅决定，reviewer字段不自动证明身份或权限，测试和迁移不能代替批准。
 
-需要引用共享规则时，在该协议agreement.json的可选review_dependencies列表中声明仓库相对文件路径，例如docs/principles.md。依赖限于docs/或agreements/下的普通资料文件，不能指向私有路径、协议元数据或发布登记。审阅清单按格式1保存这些依赖的原始字节摘要；依赖内容或声明范围改变后须重新审阅。冻结时依赖也必须已提交，之后始终从该固定提交读取。未声明依赖时不生成空依赖字段。
+需要引用共享规则时，在该协议agreement.json的可选review_dependencies列表中声明仓库相对文件路径，例如docs/principles.md。依赖限于docs/或agreements/下的普通资料文件，不能指向私有路径、协议元数据或发布登记。审阅清单按格式1保存这些依赖的原始字节摘要；依赖内容或声明范围改变后须重新审阅。冻结时依赖也必须已提交，之后始终从该固定提交读取。审阅材料的增加、删除和重命名都须进入该源码提交；文件集合不一致时在创建候选标签与登记前拒绝。未声明依赖时不生成空依赖字段。
 
 审阅后先提交实际材料、审阅记录以及声明的共享依赖，再冻结候选。按当前任务已授权的范围核对差异后提交；示例未替实际共享依赖填写路径：
 

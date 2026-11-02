@@ -16,7 +16,7 @@ import zipfile
 
 from ..catalog import Catalog, reference, validate_reference, default_root
 from ..common import CatalogError, sha256 as digest, json_bytes as encoded, canonical_sha256 as fingerprint
-from ..common import DuplicateJSONKey, parse_json, valid_relative_path, atomic_write, exclusive_guard
+from ..common import DuplicateJSONKey, parse_json, valid_relative_path, atomic_write, atomic_create, exclusive_guard
 from .. import VERSION
 
 STATE_VERSION = 3
@@ -169,14 +169,10 @@ def lock(root, recovery=False):
             except PermissionError:
                 pass
         try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            atomic_create(path, encoded({'pid': os.getpid()}), mode=0o600)
         except FileExistsError:
             raise WorkflowError('LOCKED', ['.yunxia/lock.json']) from None
         try:
-            with os.fdopen(fd, 'wb') as stream:
-                stream.write(encoded({'pid': os.getpid()}))
-                stream.flush()
-                os.fsync(stream.fileno())
             yield
         finally:
             path.unlink(missing_ok=True)
@@ -348,22 +344,36 @@ def list_units(root):
 
 def set_scope(root, paths):
     validate_scope(paths)
-    state = load_state(root)
+    state, before = load_state_with_bytes(root)
     if state.get('scope') == paths:
         return {'changed': False, 'scope': paths}
     state['history'].append({'event':'scope_changed','previous':state.get('scope'),'scope':paths,'at':now()})
     state['scope'] = paths
-    transaction(root,{STATE:encoded(state)})
+    transaction(root,{STATE:encoded(state)}, expected={STATE: before})
     return {'changed':True,'scope':paths,'scan_required':True}
 
 
 def load_state(root):
+    return load_state_with_bytes(root)[0]
+
+
+def load_state_with_bytes(root):
+    """Bind edits to the exact state image that was parsed and validated."""
     if local(root, JOURNAL).exists():
         raise WorkflowError('RECOVERY_REQUIRED', [JOURNAL])
-    path = local(root, STATE)
-    if not path.exists():
-        return fresh()
-    state = read_json(path)
+    content = current_bytes(root, STATE)
+    if content is None:
+        return fresh(), None
+    try:
+        state = parse_json(content.decode('utf-8'))
+    except DuplicateJSONKey:
+        raise WorkflowError('DUPLICATE_JSON_KEY') from None
+    except ValueError:
+        raise WorkflowError('INVALID_JSON') from None
+    return validate_state(state), content
+
+
+def validate_state(state):
     if not isinstance(state, dict) or type(state.get('state_version')) is not int or state.get('state_version') != STATE_VERSION:
         raise WorkflowError('UNSUPPORTED_STATE_VERSION')
     if 'scope' in state:
@@ -444,7 +454,7 @@ def load_state(root):
 
 
 def select_agreement(root, agreement_id, version):
-    state = load_state(root)
+    state, before = load_state_with_bytes(root)
     entry = catalog().select(agreement_id, version)
     ref = reference(entry)
     changed = state['selected_agreement'] != ref
@@ -452,7 +462,7 @@ def select_agreement(root, agreement_id, version):
         state['history'].append({'event': 'agreement_selection', 'at': now(),
                                  'previous': state['selected_agreement'], 'selected': ref})
         state['selected_agreement'] = ref
-        transaction(root, {STATE: encoded(state)})
+        transaction(root, {STATE: encoded(state)}, expected={STATE: before})
     return {'selected_agreement': ref, 'changed': changed, 'capabilities': entry['capabilities'],
             'adoption_valid': adoption_valid(state) if state['snapshot'] is not None else False}
 
@@ -621,13 +631,13 @@ def delta(old, new):
 
 
 def scan(root, persist=True):
-    state = load_state(root)
+    state, before = load_state_with_bytes(root)
     snapshot = scan_tree(root, state)
     changes = delta(state['snapshot'], snapshot)
     if persist and snapshot != state['snapshot']:
         state['history'].append({'event': 'scan', 'at': now(), 'changes': changes})
         state['snapshot'] = snapshot
-        transaction(root, {STATE: encoded(state)})
+        transaction(root, {STATE: encoded(state)}, expected={STATE: before})
     return {'snapshot_id': fingerprint(snapshot), 'files': snapshot['files'], 'skipped': snapshot['skipped'],
             'dependency_hints': snapshot['dependencies'], 'coverage_issues': snapshot['coverage_issues'],
             'changes': changes, 'persisted': persist, 'selected_agreement': state['selected_agreement'],
@@ -720,7 +730,7 @@ def nonempty(value):
 
 
 def answer(root, payload):
-    state = load_state(root)
+    state, before = load_state_with_bytes(root)
     require_snapshot(root, state)
     allowed = {'confirmed_by', 'basis', 'identity', 'delivery', 'assets', 'adoption', 'public_ai_statement', 'defer'}
     if not isinstance(payload, dict) or set(payload) - allowed or not all(nonempty(payload.get(k)) for k in ('confirmed_by', 'basis')):
@@ -820,7 +830,7 @@ def answer(root, payload):
         state.get('deferred', {}).pop('adoption', None)
     if encoded(state) != original:
         state['history'].append({'event': 'answer', 'at': now(), 'confirmed_by': payload['confirmed_by'], 'paths': sorted(seen)})
-        transaction(root, {STATE: encoded(state)})
+        transaction(root, {STATE: encoded(state)}, expected={STATE: before})
     return {'saved': encoded(state) != original, 'blockers': blockers(state), 'evidence_status': 'user_attested_not_independently_verified'}
 
 
@@ -868,7 +878,7 @@ def adapter_binding():
 
 
 def generate(root, mode='draft', write=False):
-    state = load_state(root)
+    state, before_state = load_state_with_bytes(root)
     require_snapshot(root, state)
     past_issues = history_issues(state)
     if past_issues:
@@ -876,7 +886,7 @@ def generate(root, mode='draft', write=False):
     outputs = render(root, state, mode)
     previous = state['generations'].get(mode, {}).get('files', {})
     plan, conflicts = [], []
-    before_images = {STATE: current_bytes(root, STATE)}
+    before_images = {STATE: before_state}
     previous_bytes = {}
     for rel, expected in previous.items():
         content = current_bytes(root, rel)
@@ -886,7 +896,7 @@ def generate(root, mode='draft', write=False):
         else:
             previous_bytes[rel] = content
     for rel, content in outputs.items():
-        before = current_bytes(root, rel)
+        before = before_images[rel] if rel in before_images else current_bytes(root, rel)
         before_images[rel] = before
         expected = previous.get(rel)
         if before is not None and before != content and (expected is None or digest(before) != expected):
@@ -897,6 +907,7 @@ def generate(root, mode='draft', write=False):
     if write and conflicts:
         raise WorkflowError('MANUAL_EDIT_CONFLICT', conflicts)
     if write:
+        require_snapshot(root, state)
         generation = {'files': {p: digest(v) for p, v in outputs.items()},
                       'snapshot_id': fingerprint(state['snapshot']), 'context_id': context_id(state),
                       'tool_version': VERSION, 'license_sha256': state['selected_agreement']['sha256'],

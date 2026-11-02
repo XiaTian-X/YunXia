@@ -83,6 +83,37 @@ class Lifecycle(unittest.TestCase):
         life.freeze(self.root,'fixture','rc1','notes')
         self.assertEqual(Catalog(self.root).select('fixture','rc1')['_text'],b'Test terms version 1.0.0\n')
 
+    def check_uncommitted_review_file_deletion(self, relative, content):
+        material=self.root/'agreements/fixture'/relative
+        material.parent.mkdir(parents=True,exist_ok=True)
+        material.write_text(content)
+        self.commit()
+        material.unlink()
+        info=life.inspect(self.root,'fixture')
+        life.review(self.root,'fixture',{'source_sha256':info['source_sha256'],
+                    'reviewer':'fixture maintainer','date':'2026-11-02','decision':'approved',
+                    'basis':'test-only review after removing material','open_issues':[]})
+        subprocess.run(['git','-C',str(self.root),'add','agreements/fixture/agreement.json'],
+                       check=True,capture_output=True)
+        subprocess.run(['git','-C',str(self.root),'commit','-q','--no-verify','-m','Approval only'],
+                       check=True,capture_output=True)
+        self.error('REVIEW_SOURCE_CHANGED',life.freeze,self.root,'fixture','rc1','notes')
+        self.assertFalse((self.root/'registry/fixture/rc1.json').exists())
+        tag=subprocess.run(['git','-C',str(self.root),'show-ref','--verify','--quiet',
+                            'refs/tags/fixture/vrc1'],capture_output=True)
+        self.assertEqual(tag.returncode,1)
+        self.commit()
+        result=life.freeze(self.root,'fixture','rc1','notes')
+        self.assertEqual(result['status'],'candidate')
+        fixed=Catalog(self.root).select('fixture','rc1')
+        self.assertNotIn(relative,fixed['source']['snapshot']['files'])
+
+    def test_freeze_requires_case_deletion_to_be_committed(self):
+        self.check_uncommitted_review_file_deletion('cases.json','{"cases": []}\n')
+
+    def test_freeze_requires_template_deletion_to_be_committed(self):
+        self.check_uncommitted_review_file_deletion('templates/notice.md','Old template\n')
+
     def test_shared_review_dependencies_are_bound_to_frozen_git_materials(self):
         shared=self.root/'docs/shared.md';shared.parent.mkdir();shared.write_bytes(b'Original shared rule\n')
         path=self.root/'agreements/fixture/agreement.json'
@@ -217,6 +248,54 @@ class Lifecycle(unittest.TestCase):
                 with life.locked(self.root):pass
             self.assertEqual(cm.exception.code,'MAINTENANCE_LOCKED')
             self.error('MAINTENANCE_LOCKED',life.recover_lock,self.root)
+
+    def test_interrupted_pid_creation_is_absent_or_recoverable(self):
+        script="""
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[2])
+from yunxia import common, lifecycle
+original = common.os.link
+def interrupted(source, destination):
+    if sys.argv[3] == 'after':
+        original(source, destination)
+    print('interrupted', flush=True)
+    sys.stdin.read()
+    if sys.argv[3] == 'before':
+        original(source, destination)
+common.os.link = interrupted
+with lifecycle.locked(Path(sys.argv[1])):
+    pass
+"""
+        path=self.root/'.yunxia-maintenance.lock'
+        for phase in ('before','after'):
+            with self.subTest(phase=phase):
+                process=subprocess.Popen([sys.executable,'-B','-c',script,str(self.root),
+                    str(ROOT/'tooling/src'),phase],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,text=True)
+                try:
+                    self.assertEqual(process.stdout.readline().strip(),'interrupted')
+                    process.kill();process.communicate(timeout=10)
+                    if phase=='after':
+                        self.assertEqual(json.loads(path.read_bytes()),{'pid':process.pid})
+                    else:
+                        self.assertFalse(path.exists())
+                    self.assertEqual(life.recover_lock(self.root)['lock_recovered'],phase=='after')
+                    with life.locked(self.root):
+                        self.assertTrue(path.is_file())
+                    self.assertFalse(path.exists())
+                finally:
+                    if process.poll() is None:process.kill()
+                    process.communicate(timeout=10)
+
+    def test_recovery_preserves_preexisting_malformed_pid_records(self):
+        path=self.root/'.yunxia-maintenance.lock'
+        for content,code in ((b'','CATALOG_FORMAT'),(b'{"pid":true}','MAINTENANCE_LOCK_INVALID')):
+            with self.subTest(content=content):
+                path.write_bytes(content)
+                self.error(code,life.recover_lock,self.root)
+                self.assertEqual(path.read_bytes(),content)
+        path.unlink()
 
     def test_only_dead_maintenance_lock_can_be_recovered(self):
         (self.root/'.yunxia-maintenance.lock').write_bytes(life.encoded({'pid':123456789}))

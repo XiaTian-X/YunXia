@@ -92,6 +92,40 @@ class Distribution(unittest.TestCase):
         self.assertEqual((target/'keep').read_text(),'keep')
         self.assertTrue(Path(cm.exception.paths[0]).exists())
 
+    def test_failed_install_quarantine_error_reports_retained_backup_and_target(self):
+        d.build(self.root)
+        target=self.base/'skills/yunxia';target.mkdir(parents=True)
+        (target/'keep').write_text('original installation');self.old_skill_marker(target)
+        original=d.inventory(target)
+        real_validate=d.validate;real_tempfile=d.tempfile.mkdtemp
+        def fail_validation(path):
+            if path==target:raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
+            return real_validate(path)
+        def fail_quarantine(*args,**kwargs):
+            if kwargs.get('prefix')=='yunxia-failed-':raise OSError('Cannot create quarantine directory')
+            return real_tempfile(*args,**kwargs)
+        with patch.object(d,'validate',side_effect=fail_validation),patch.object(d.tempfile,'mkdtemp',side_effect=fail_quarantine):
+            with self.assertRaises(CatalogError) as cm:d.install(self.root,target,True)
+        self.assertEqual(cm.exception.code,'INSTALL_RECOVERY_REQUIRED')
+        self.assertEqual(cm.exception.paths[1],str(target))
+        self.assertEqual(d.inventory(Path(cm.exception.paths[0])),original)
+        self.assertTrue((target/'BUILD.json').is_file())
+
+    def test_first_install_quarantine_error_reports_target_without_fictional_backup(self):
+        d.build(self.root);target=self.base/'skills/yunxia'
+        real_validate=d.validate;real_tempfile=d.tempfile.mkdtemp
+        def fail_validation(path):
+            if path==target:raise CatalogError('DISTRIBUTION_HASH_MISMATCH')
+            return real_validate(path)
+        def fail_quarantine(*args,**kwargs):
+            if kwargs.get('prefix')=='yunxia-failed-':raise OSError('Cannot create quarantine directory')
+            return real_tempfile(*args,**kwargs)
+        with patch.object(d,'validate',side_effect=fail_validation),patch.object(d.tempfile,'mkdtemp',side_effect=fail_quarantine):
+            with self.assertRaises(CatalogError) as cm:d.install(self.root,target)
+        self.assertEqual(cm.exception.code,'INSTALL_RECOVERY_REQUIRED')
+        self.assertEqual(cm.exception.paths,[str(target)])
+        self.assertTrue((target/'BUILD.json').is_file())
+
     def test_build_rollback_failure_preserves_unique_backup(self):
         d.build(self.root);target=self.root/'dist/skills/yunxia'
         old=d.inventory(target)

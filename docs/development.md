@@ -32,4 +32,4 @@ python3 -B tooling/yunxia.py adapter --agreement AGREEMENT --version VERSION --o
 
 发生异常时，先按 [异常与恢复](maintenance.md#recovery) 区分维护锁、发布回执、分发安装和项目事务，再选择对应入口。
 
-维护锁使用保留的`.yunxia-maintenance.guard`文件作为互斥载体，项目使用`.yunxia/lock.guard`；这些文件已被忽略，不是需要提交或删除的缓存。PID记录仍用于判断中断与显式恢复，恢复过程也持有同一进程锁。
+维护锁使用保留的`.yunxia-maintenance.guard`文件作为互斥载体，项目使用`.yunxia/lock.guard`；这些文件已被忽略，不是需要提交或删除的缓存。PID记录仍用于判断中断与显式恢复，完整写入临时文件后原子创建正式记录，恢复过程也持有同一进程锁。已有损坏PID记录会保留并报错。

@@ -448,6 +448,40 @@ class YunXiaWorkflow(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(json.loads(result.stdout)['error'], 'LOCKED')
 
+    def test_project_lock_interrupt_before_commit_leaves_no_pid_record(self):
+        with patch('yunxia.common.os.link', side_effect=KeyboardInterrupt), self.assertRaises(KeyboardInterrupt):
+            with yx.lock(self.root):
+                self.fail('The lock must not be acquired before its PID record is committed')
+        self.assertFalse((self.root / '.yunxia/lock.json').exists())
+        with yx.lock(self.root, recovery=True):
+            self.assertEqual(yx.read_json(self.root / '.yunxia/lock.json'), {'pid': os.getpid()})
+
+    def test_project_lock_interrupt_after_commit_leaves_recoverable_pid(self):
+        real_link = os.link
+        def interrupt_after_commit(*args, **kwargs):
+            real_link(*args, **kwargs)
+            raise KeyboardInterrupt()
+        with patch('yunxia.common.os.link', side_effect=interrupt_after_commit), self.assertRaises(KeyboardInterrupt):
+            with yx.lock(self.root):
+                self.fail('The injected interruption must precede the protected operation')
+        lock_path = self.root / '.yunxia/lock.json'
+        self.assertEqual(yx.read_json(lock_path), {'pid': os.getpid()})
+        with patch.object(yx.os, 'kill', side_effect=ProcessLookupError), yx.lock(self.root, recovery=True):
+            self.assertEqual(yx.read_json(lock_path), {'pid': os.getpid()})
+        self.assertFalse(lock_path.exists())
+
+    def test_project_recovery_preserves_malformed_existing_lock(self):
+        yx.private_dir(self.root)
+        lock_path = self.root / '.yunxia/lock.json'
+        for content, expected in ((b'', 'INVALID_JSON'), (b'{}\n', 'INVALID_LOCK')):
+            with self.subTest(content=content):
+                lock_path.write_bytes(content)
+                with self.assertRaises(yx.WorkflowError) as result:
+                    with yx.lock(self.root, recovery=True):
+                        self.fail('A malformed lock is not evidence of a dead owner')
+                self.assertEqual(result.exception.code, expected)
+                self.assertEqual(lock_path.read_bytes(), content)
+
     def test_recovery_guard_blocks_a_second_process_before_pid_probe(self):
         yx.private_dir(self.root)
         lock_path = self.root / '.yunxia/lock.json'
@@ -644,6 +678,23 @@ class YunXiaWorkflow(unittest.TestCase):
             self.assert_error('VERSION_IDENTITY_CHANGED', yx.verify, self.root)
         self.assertEqual((self.root / yx.STATE).read_bytes(), before)
 
+    def test_generation_keeps_first_output_image_when_file_is_deleted_during_planning(self):
+        self.adopt()
+        state_before=(self.root/yx.STATE).read_bytes()
+        target=self.root/'PROJECT-RIGHTS.md'
+        actual=yx.current_bytes;calls=0
+        def delete_before_second_read(root,rel):
+            nonlocal calls
+            if rel=='PROJECT-RIGHTS.md':
+                calls+=1
+                if calls==2:target.unlink()
+            return actual(root,rel)
+        with patch.object(yx,'current_bytes',side_effect=delete_before_second_read):
+            self.assert_error('CONCURRENT_EDIT',self.generate,'adopt')
+        self.assertFalse(target.exists())
+        self.assertEqual((self.root/yx.STATE).read_bytes(),state_before)
+        self.assertFalse((self.root/yx.JOURNAL).exists())
+
     def test_different_version_requires_its_own_adoption(self):
         self.adopt()
         old_adoption = copy.deepcopy(yx.load_state(self.root)['adoption'])
@@ -817,6 +868,71 @@ class YunXiaWorkflow(unittest.TestCase):
             self.assert_error('CONCURRENT_EDIT', self.generate, 'adopt')
         self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_text(), 'concurrent human edit')
         self.assertEqual((self.root / yx.STATE).read_bytes(), state_before)
+
+    def test_mutations_keep_the_state_image_from_the_initial_load(self):
+        self.scan()
+        original = (self.root / yx.STATE).read_bytes()
+        concurrent = json.loads(original)
+        concurrent['history'].append({'event': 'concurrent_evidence', 'basis': 'KEEP THIS EVIDENCE'})
+        concurrent_bytes = yx.encoded(concurrent)
+        real_validate = yx.validate_state
+        operations = {
+            'scope': lambda: yx.set_scope(self.root, ['src']),
+            'select': lambda: yx.select_agreement(self.root, 'yunxia-license', '0.9.2-draft.1'),
+            'scan': lambda: yx.scan(self.root),
+            'answer': lambda: yx.answer(self.root, self.facts()),
+            'generate': lambda: yx.generate(self.root, 'draft', True),
+        }
+        for name, operation in operations.items():
+            with self.subTest(operation=name):
+                (self.root / yx.STATE).write_bytes(original)
+                added = self.root / 'src/new.py'
+                added.unlink(missing_ok=True)
+                if name == 'scan':
+                    added.write_text('print(2)\n')
+                edited = False
+                def edit_after_validation(state):
+                    nonlocal edited
+                    result = real_validate(state)
+                    if not edited:
+                        (self.root / yx.STATE).write_bytes(concurrent_bytes)
+                        edited = True
+                    return result
+                with yx.lock(self.root), patch.object(yx, 'validate_state', side_effect=edit_after_validation):
+                    self.assert_error('CONCURRENT_EDIT', operation)
+                self.assertEqual((self.root / yx.STATE).read_bytes(), concurrent_bytes)
+                self.assertFalse((self.root / yx.JOURNAL).exists())
+                self.assertFalse((self.root / '.yunxia/draft/PROJECT-RIGHTS.md').exists())
+
+    def test_first_state_write_preserves_concurrent_initialization(self):
+        real_fresh = yx.fresh
+        concurrent = real_fresh()
+        concurrent['history'].append({'event': 'concurrent_initialization'})
+        concurrent_bytes = yx.encoded(concurrent)
+        def initialize_after_read():
+            state = real_fresh()
+            (self.root / yx.STATE).write_bytes(concurrent_bytes)
+            return state
+        with yx.lock(self.root), patch.object(yx, 'fresh', side_effect=initialize_after_read):
+            self.assert_error('CONCURRENT_EDIT', yx.scan, self.root)
+        self.assertEqual((self.root / yx.STATE).read_bytes(), concurrent_bytes)
+        self.assertFalse((self.root / yx.JOURNAL).exists())
+
+    def test_source_change_during_render_blocks_generation(self):
+        self.adopt()
+        state_before = (self.root / yx.STATE).read_bytes()
+        rights_before = (self.root / 'PROJECT-RIGHTS.md').read_bytes()
+        real_render = yx.render
+        def edit_after_render(*args):
+            outputs = real_render(*args)
+            self.write('src/main.py', 'print("concurrent source edit")\n')
+            return outputs
+        with patch.object(yx, 'render', side_effect=edit_after_render):
+            self.assert_error('SCAN_STALE', self.generate, 'adopt')
+        self.assertEqual((self.root / yx.STATE).read_bytes(), state_before)
+        self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_bytes(), rights_before)
+        self.assertEqual((self.root / 'src/main.py').read_text(), 'print("concurrent source edit")\n')
+        self.assertFalse((self.root / yx.JOURNAL).exists())
 
     def test_concurrent_edit_after_expected_check_is_not_adopted_as_before_image(self):
         self.adopt()

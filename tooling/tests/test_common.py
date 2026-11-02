@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'tooling/src'))
-from yunxia.common import CatalogError, json_bytes, canonical_sha256, read_json, safe_path, atomic_write, exclusive_guard
+from yunxia.common import CatalogError, json_bytes, canonical_sha256, read_json, safe_path, atomic_write, atomic_create, exclusive_guard
 from yunxia.catalog import Catalog
 from yunxia.project import workflow
 
@@ -59,6 +59,29 @@ with exclusive_guard(Path(sys.argv[1])):
                 atomic_write(path, b'record', mode=mode)
                 self.assertEqual(path.stat().st_mode & 0o777, mode)
                 self.assertEqual(path.read_bytes(), b'record')
+
+    def test_atomic_create_publishes_complete_bytes_without_replacing_existing_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/'lock.json'
+            atomic_create(path, b'complete record')
+            self.assertEqual(path.read_bytes(), b'complete record')
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(FileExistsError):
+                atomic_create(path, b'replacement')
+            self.assertEqual(path.read_bytes(), b'complete record')
+            self.assertEqual(list(Path(temp).iterdir()), [path])
+
+    def test_atomic_create_failure_before_publication_leaves_no_partial_record(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)/'lock.json'
+            def interrupted(source, destination):
+                self.assertEqual(Path(source).read_bytes(), b'complete record')
+                self.assertEqual(destination, path)
+                self.assertFalse(path.exists())
+                raise OSError('interrupted before publication')
+            with patch('yunxia.common.os.link', side_effect=interrupted), self.assertRaises(OSError):
+                atomic_create(path, b'complete record')
+            self.assertEqual(list(Path(temp).iterdir()), [])
 
     def test_strict_json_preserves_each_interfaces_error_codes(self):
         with tempfile.TemporaryDirectory() as temp:

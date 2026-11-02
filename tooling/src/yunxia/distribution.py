@@ -185,11 +185,14 @@ def install(root, destination, update=False):
         except BaseException:
             failed=None
             if activated:
-                backup_root=safe_path(destination.parent.parent,'skill-backups');backup_root.mkdir(exist_ok=True)
-                failed=Path(tempfile.mkdtemp(prefix='yunxia-failed-',dir=backup_root))/'yunxia'
-                try:destination.rename(failed)
+                try:
+                    backup_root=safe_path(destination.parent.parent,'skill-backups');backup_root.mkdir(exist_ok=True)
+                    failed=Path(tempfile.mkdtemp(prefix='yunxia-failed-',dir=backup_root))/'yunxia'
+                    destination.rename(failed)
                 except BaseException:
-                    raise CatalogError('INSTALL_RECOVERY_REQUIRED',[str(backup),str(destination)]) from None
+                    paths=([str(backup)] if backup else [])+[str(destination)]
+                    if failed is not None:paths.append(str(failed))
+                    raise CatalogError('INSTALL_RECOVERY_REQUIRED',paths) from None
             if backup:
                 try:backup.rename(destination)
                 except BaseException:raise CatalogError('INSTALL_RECOVERY_REQUIRED',[str(backup)]) from None
