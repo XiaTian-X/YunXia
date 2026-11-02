@@ -1,5 +1,7 @@
 # 开发、构建与安装
 
+任务入口见 [任务导航](README.md)。协议新增、审阅、发布与修订按维护指南进行；本页维护工具开发、适配测试和分发安装约定。
+
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r tooling/requirements-dev.txt
@@ -28,6 +30,6 @@ python3 -B tooling/yunxia.py adapter --agreement AGREEMENT --version VERSION --o
 
 测试夹具按当前格式生成真实Git对象。覆盖固定来源、审阅失效、版本更新、发布中断/重试、离线包完整性、多单元采用及项目事务恢复。敏感材料、原始备份、环境、缓存、发布执行临时数据、构建产物和检查报告由.gitignore排除。
 
-维护命令异常中断留下锁时，使用`python3 -B tooling/yunxia.py recover-maintenance`回收不存在进程的锁。活跃或格式损坏的锁不会自动删除。发布流程用相同输入核验重试；项目材料写入中断则按[状态与事务恢复](../skills/yunxia/references/recovery.md)处理，两者不能混用。
+发生异常时，先按 [异常与恢复](maintenance.md#recovery) 区分维护锁、发布回执、分发安装和项目事务，再选择对应入口。
 
 维护锁使用保留的`.yunxia-maintenance.guard`文件作为互斥载体，项目使用`.yunxia/lock.guard`；这些文件已被忽略，不是需要提交或删除的缓存。PID记录仍用于判断中断与显式恢复，恢复过程也持有同一进程锁。

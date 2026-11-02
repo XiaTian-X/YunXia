@@ -93,6 +93,8 @@ python3 -B tooling/yunxia.py project --root /path/to/project scan --read-only
 
 完整采用流程及回答格式见 [Skill 工作流](skills/yunxia/references/workflow.md)。
 
+在本仓库通过 Agent 新增、审阅或维护协议，从 [Agent 工作入口](AGENTS.md) 和 [任务导航](docs/README.md) 开始；具体项目采用继续使用 `yunxia` Skill。
+
 ### 3. 构建和安装 Skill
 
 ```bash
@@ -115,6 +117,7 @@ make skill-install
 
 ```text
 .
+├── AGENTS.md               # 仓库级 Agent 入口与任务导航
 ├── agreements/             # 各协议的工作正文、设计、审阅和人工采用指南
 │   └── yunxia-license/
 ├── registry/               # 版本与发布登记，历史正文从固定 Git 提交提取
@@ -139,7 +142,7 @@ make skill-install
 | `make build` | 构建独立 Skill 分发包 |
 | `make skill-install` | 构建、备份并更新本机 Skill |
 
-协议维护命令包括 `create`、`inspect`、`review`、`freeze`、`publish`、`revise`、`recommend`、`maintain` 和 `retire`。具体输入与阶段要求见 [协议全周期维护指南](docs/maintenance.md)。
+按新增、审阅、发布、更新或恢复等目标选择 [维护任务](docs/README.md)，具体命令、输入与完成条件见对应流程。
 
 检查只验证已实现的结构、记录和文件一致性，不自动接受变化后的摘要。环境、缓存、构建产物、项目私有状态和常见凭证由 `.gitignore` 排除；实际交付仍需检查文件范围。
 
@@ -147,6 +150,7 @@ make skill-install
 
 | 阅读目的 | 文档 |
 | --- | --- |
+| 通过 Agent 维护协议或选择任务流程 | [Agent 工作入口](AGENTS.md) · [任务导航](docs/README.md) |
 | 了解系列定位与维护原则 | [允夏系列原则](docs/principles.md) |
 | 设立、审阅、发布和更新协议 | [协议全周期维护](docs/maintenance.md) |
 | 开发工具、运行测试和安装 | [开发、构建与安装](docs/development.md) |

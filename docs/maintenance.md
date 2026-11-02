@@ -2,7 +2,13 @@
 
 在仓库根目录执行以下命令；维护其他仓库可在agreement后传入--repository。agreements保存当前工作资料，registry/<协议ID>/<版本>.json记录固定版本及发布事实，历史正文按完整Git提交和真实文件路径提取。tag统一指向该源码提交；登记文件与发布回执可以在后续提交中保存。
 
+从 [任务导航](README.md) 选择章节。示例中的协议 ID、版本、路径和发布决定需替换为实际值；已有协议先运行 `agreement inspect --id <协议ID>` 查看工作信息和固定版本。命令本身及输入字段以当前 `tooling/yunxia.py` 的帮助和检查结果为准。
+
+<a id="create"></a>
+
 ## 设立与起草
+
+输入是未占用的稳定协议 ID、名称、设立目的、目标版本和初始正文。先说明与现有协议的关系，再建立工作资料。
 
 ```bash
 python3 -B tooling/yunxia.py agreement create --id example-license --name 示例协议 --purpose 实际设立目的 --version 1.0.0 --text /private/initial-text.txt
@@ -10,7 +16,13 @@ python3 -B tooling/yunxia.py agreement create --id example-license --name 示例
 
 命令只建立草案。维护者补齐README中的定位、design中的设计依据、review中的问题和adoption中的采用路径；需要时添加cases.json与templates。create生成的待填写说明不表示审阅完成。日常编辑通过Git留痕，并行修订用分支。
 
+完成条件：工作目录已建立，定位与材料已整理，未决项有记录，`inspect` 和仓库检查通过。后续批准与候选冻结进入下一流程。
+
+<a id="review"></a>
+
 ## 审阅与冻结
+
+输入是当前完整材料及实际审阅决定；冻结还需要未占用的候选标识和版本说明。审阅分析写入该协议的 `review.md`，工具登记的批准或要求修改结论写入维护元数据。
 
 ```bash
 python3 -B tooling/yunxia.py agreement inspect --id example-license
@@ -21,10 +33,11 @@ review.json必须有source_sha256（inspect返回）、reviewer、date、decisio
 
 需要引用共享规则时，在该协议agreement.json的可选review_dependencies列表中声明仓库相对文件路径，例如docs/principles.md。依赖限于docs/或agreements/下的普通资料文件，不能指向私有路径、协议元数据或发布登记。审阅清单按格式1保存这些依赖的原始字节摘要；依赖内容或声明范围改变后须重新审阅。冻结时依赖也必须已提交，之后始终从该固定提交读取。未声明依赖时不生成空依赖字段。
 
-审阅后先提交实际材料和审阅记录，再冻结候选。下面的提交必须由维护者确认其文件范围：
+审阅后先提交实际材料、审阅记录以及声明的共享依赖，再冻结候选。按当前任务已授权的范围核对差异后提交；示例未替实际共享依赖填写路径：
 
 ```bash
 git add agreements/example-license
+# 若声明了共享依赖，同时暂存其中已修改的实际文件
 git commit -m "Review example-license 1.0.0"
 python3 -B tooling/yunxia.py agreement freeze --id example-license --version 1.0.0-rc.1 --notes /private/notes.md
 ```
@@ -34,6 +47,10 @@ freeze核对已提交材料与当前审阅，保存源码提交、文件映射�
 Git保存历史字节；registry保存版本身份、审阅和发布事实。候选中的小型说明与审阅记录可由登记生成，协议正文不在登记中复制。后续构建生成包内文件清单与摘要，包清单不包含自己的摘要或未来发布回执。
 
 registry中的审阅依据、版本说明和发布决定会进入公开登记或发布包，只填写可公开的摘要与必要定位信息；私人合同、凭证和完整内部证据另行保存。校验覆盖完整Git历史，包括合并分支及合并提交中的登记，并忽略本地grafts/replace对历史视图的替换；拒绝版本改绑、发布回执或撤回事实的删除。
+
+完成条件：仅审阅任务交付实际结论和未决项；需要冻结时，批准仍覆盖当前材料，候选登记为 `status=candidate`，源码和标签可解析，仓库检查通过。工作元数据的 `stage` 与固定版本的 `status` 分开，不用工作阶段代替候选或发布结果。
+
+<a id="local-publication"></a>
 
 ## 发布决定与本地交付
 
@@ -46,9 +63,13 @@ python3 -B tooling/yunxia.py agreement publish --id example-license --candidate 
 
 正式版本必须等于候选来源中已审阅的target_version。先登记prepared发布意图，再向仓库外目录交付、逐项核对实际文件并登记完成回执。本地渠道表示经过核对的本地交付，不表示远程URL可用。目标已有不同内容时拒绝覆盖；中断后使用相同输入重试，复用一致的交付并补齐回执。
 
+完成后运行 `agreement verify-publication --id example-license --version 1.0.0` 核对实际目录；登记应为 `status=released` 且 `publication.state=published`。单独使用 `--prepare` 只占用版本身份并保存发布意图，不满足交付完成条件。
+
+<a id="github-publication"></a>
+
 ## GitHub发布与恢复
 
-GitHub渠道使用github.com，需要已认证的gh，OWNER/REPO替换为明确的目标仓库。本仓库没有正式发布；以下命令是维护者未来明确决定发布时使用的流程。
+GitHub渠道使用github.com，需要已认证的gh、明确的目标仓库、候选和发布决定。OWNER/REPO替换为实际目标；示例中的 `origin` 必须指向这个仓库。本仓库没有正式发布；以下命令是维护者未来明确决定发布时使用的流程。
 
 ```bash
 python3 -B tooling/yunxia.py agreement publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --github OWNER/REPO --input /private/publication.json --prepare
@@ -62,21 +83,39 @@ python3 -B tooling/yunxia.py agreement verify-publication --id example-license -
 
 准备阶段占用正式版本身份并固定来源、标签、发布决定和附件摘要。登记及其候选、修订基线等依赖必须在同一已提交快照中完整可读，并已推送；依赖标签也必须可从远端解析到固定提交。发布工具在任何远端写入前核对这些条件，随后核对正式版本标签、创建或恢复draft Release、核对已有附件并补齐缺失项，最后公开并下载验证，再写完成回执。工具不替维护者提交或推送任意工作树文件。
 
-跨Git和GitHub的操作不能作为单次原子事务。上传超时后先查询实际远端结果；同名同摘要附件可以复用，同名不同内容必须报冲突，不覆盖。启用不可变发布时必须在公开前上传全部附件。Release已公开但本地回执未写入，或回执未推送时，重试相同发布命令后完成登记；不能删除已公开结果来伪装回滚。
+跨Git和GitHub的操作不能作为单次原子事务。上传超时后，使用相同输入重试，工具会先查询实际远端结果；同名同摘要附件可以复用，同名不同内容必须报冲突，不覆盖。启用不可变发布时必须在公开前上传全部附件。Release已公开但本地回执尚未写入时，使用相同发布输入核验并补写；回执已经写入但尚未提交或推送时，先核对并提交、推送更新的登记，再运行 `verify-publication`。不能删除已公开结果来伪装回滚。
 
-published记录历史交付事实，当前远端不可用另由核验结果报告，不能把已发布版本退回未发布。Release标题、说明、latest和预发布标记不是固定内容的唯一依据。主体版本、原始正文摘要、标签目标和登记的附件集合均须匹配。
+完成条件：公开附件实际下载核验通过，登记为 `status=released`、`publication.state=published`，完成回执已提交并推送，`verify-publication` 返回发布与登记同步核验通过。仅 `prepared`、仅有公开附件或仅有本地回执，都应报告具体未完成项。
 
-## 更新、推荐与维护状态
+`publication.state=published` 记录历史交付事实，当前远端不可用另由核验结果报告，不能把已发布版本退回未发布。Release标题、说明、latest和预发布标记不是固定内容的唯一依据。主体版本、原始正文摘要、标签目标和登记的附件集合均须匹配。
+
+<a id="revision"></a>
+<a id="更新推荐与维护状态"></a>
+
+## 更新版本
+
+修订输入是可解析的固定基线和未占用的新目标版本。先执行 `revise` 再编辑下一版正文。
 
 ```bash
 python3 -B tooling/yunxia.py agreement revise --id example-license --base 1.0.0 --version 2.0.0
+```
+
+revise要求工作正文仍与基线一致，防止覆盖已编辑内容；它绑定下一版目标及基线，清除旧批准，正文随后由维护者修改。已发布正文任何改变都需要新版本。历史引用链必须可从固定Git对象解析，缺失或摘要不一致会使检查失败。
+
+修订完成条件：新目标与基线已记录，工作草案及配套资料按要求更新，旧固定版本和已有引用保持可解析；随后按 [审阅与冻结](#review) 形成新候选。修改工作草案不会自动生成新发布。
+
+<a id="maintenance-state"></a>
+
+## 推荐与维护状态
+
+输入是实际目标版本或维护状态及其理由；按任务选择所需命令：
+
+```bash
 python3 -B tooling/yunxia.py agreement recommend --id example-license --version 1.0.0 --reason 实际推荐理由
 python3 -B tooling/yunxia.py agreement recommend --id example-license --reason 停止推荐理由
 python3 -B tooling/yunxia.py agreement retire --id example-license --reason 停止维护理由
 python3 -B tooling/yunxia.py agreement maintain --id example-license --state active --reason 恢复维护理由
 ```
-
-revise要求工作正文仍与基线一致，防止覆盖已编辑内容；它绑定下一版目标及基线，清除旧批准，正文随后由维护者修改。已发布正文任何改变都需要新版本。历史引用链必须可从固定Git对象解析，缺失或摘要不一致会使检查失败。
 
 recommend只能指向可推荐的正式版，不填version表示停止推荐。retire清除推荐并停止维护，历史记录仍保留；maintain支持active、paused和retired。维护状态、推荐和适配支持分别管理，不因工具升级或新版本发布改变旧项目绑定。
 
@@ -87,6 +126,26 @@ python3 -B tooling/yunxia.py agreement withdraw --id example-license --version 1
 ```
 
 撤回保留原版本和发布证据，停止推荐；不能删除正文来表达撤回，也不自动改变既有项目的采用记录或推定其法律效果。
+
+状态调整完成后，用 `inspect`、`project catalog` 和仓库检查核对相应状态、推荐及保留的引用；不要把停止维护与撤回分发混为同一个决定。
+
+<a id="recovery"></a>
+
+## 异常与恢复
+
+先保留现场，确认失败发生在维护仓库、发布渠道还是目标项目。恢复入口按对象选择：
+
+| 情况 | 处理方式 | 完成判据 |
+| --- | --- | --- |
+| 维护命令中断后遗留 PID 锁 | 在维护仓库执行 `python3 -B tooling/yunxia.py recover-maintenance`；只回收已结束进程的锁，再重试原操作 | 锁恢复结果明确，原操作及相应检查通过 |
+| 本地交付或 GitHub 附件操作中断，完成回执尚未写入 | 按原协议、候选、版本、渠道和决定重试发布；具体条件见上方对应发布流程 | 原交付被核验，完成回执形成；GitHub 还需提交、推送和核验登记 |
+| GitHub 回执已写入但未提交或推送 | 核对并提交、推送登记，再执行 `verify-publication` | 远端附件和完成登记同时核验通过 |
+| 构建或安装报告需要恢复 | 按错误返回的实际备份和目标路径核对并恢复；保护机制见 [开发指南](development.md) | 可用包与原固定摘要一致，再完成构建或安装检查 |
+| 目标项目材料写入中断 | 按 [项目事务恢复](../skills/yunxia/references/recovery.md) 对发生中断的采用单元操作 | 原字节与已记录权限恢复，重新扫描并报告检查结果 |
+
+`recover-maintenance` 只处理维护锁。活跃锁保持不动，保留的 guard 文件不是待删除的锁残留；说明见 [开发指南](development.md)。Git对象缺失、摘要冲突或人工修改冲突应根据真实来源处理，不通过删状态、改摘要或覆盖标签绕过。恢复完成前报告已完成和仍待核的部分。
+
+<a id="adaptation"></a>
 
 ## 适配与历史保留
 
