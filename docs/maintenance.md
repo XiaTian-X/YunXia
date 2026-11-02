@@ -33,7 +33,7 @@ freeze核对已提交材料与当前审阅，保存源码提交、文件映射�
 
 Git保存历史字节；registry保存版本身份、审阅和发布事实。候选中的小型说明与审阅记录可由登记生成，协议正文不在登记中复制。后续构建生成包内文件清单与摘要，包清单不包含自己的摘要或未来发布回执。
 
-registry中的审阅依据、版本说明和发布决定会进入公开登记或发布包，只填写可公开的摘要与必要定位信息；私人合同、凭证和完整内部证据另行保存。校验会与Git历史中已提交的登记比较，拒绝版本改绑、发布回执或撤回事实的删除。
+registry中的审阅依据、版本说明和发布决定会进入公开登记或发布包，只填写可公开的摘要与必要定位信息；私人合同、凭证和完整内部证据另行保存。校验覆盖完整Git历史，包括合并分支及合并提交中的登记，并忽略本地grafts/replace对历史视图的替换；拒绝版本改绑、发布回执或撤回事实的删除。
 
 ## 发布决定与本地交付
 
@@ -52,13 +52,15 @@ GitHub渠道使用github.com，需要已认证的gh，OWNER/REPO替换为明确�
 
 ```bash
 python3 -B tooling/yunxia.py agreement publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --github OWNER/REPO --input /private/publication.json --prepare
-# 核对prepared登记后，将该登记提交并推送到目标仓库
+# 核对并提交prepared、对应候选与修订基线登记及协议元数据，推送到目标仓库
+# 推送本次依赖的候选标签；其他基线标签同样逐项推送
+git push origin example-license/v1.0.0-rc.1
 python3 -B tooling/yunxia.py agreement publish --id example-license --candidate 1.0.0-rc.1 --version 1.0.0 --github OWNER/REPO --input /private/publication.json
 # 核对完成回执后，提交并推送更新的registry
 python3 -B tooling/yunxia.py agreement verify-publication --id example-license --version 1.0.0
 ```
 
-准备阶段占用正式版本身份并固定来源、标签、发布决定和附件摘要。登记提交须先推送，发布工具随后核对远端标签、创建或恢复draft Release、核对已有附件并补齐缺失项，最后公开并下载验证，再写完成回执。工具不替维护者提交或推送任意工作树文件。
+准备阶段占用正式版本身份并固定来源、标签、发布决定和附件摘要。登记及其候选、修订基线等依赖必须在同一已提交快照中完整可读，并已推送；依赖标签也必须可从远端解析到固定提交。发布工具在任何远端写入前核对这些条件，随后核对正式版本标签、创建或恢复draft Release、核对已有附件并补齐缺失项，最后公开并下载验证，再写完成回执。工具不替维护者提交或推送任意工作树文件。
 
 跨Git和GitHub的操作不能作为单次原子事务。上传超时后先查询实际远端结果；同名同摘要附件可以复用，同名不同内容必须报冲突，不覆盖。启用不可变发布时必须在公开前上传全部附件。Release已公开但本地回执未写入，或回执未推送时，重试相同发布命令后完成登记；不能删除已公开结果来伪装回滚。
 

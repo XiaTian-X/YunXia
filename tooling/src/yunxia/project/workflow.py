@@ -16,7 +16,7 @@ import zipfile
 
 from ..catalog import Catalog, reference, validate_reference, default_root
 from ..common import CatalogError, sha256 as digest, json_bytes as encoded, canonical_sha256 as fingerprint
-from ..common import DuplicateJSONKey, parse_json, valid_relative_path, atomic_write
+from ..common import DuplicateJSONKey, parse_json, valid_relative_path, atomic_write, exclusive_guard
 from .. import VERSION
 
 STATE_VERSION = 3
@@ -83,8 +83,32 @@ def current_bytes(root, rel):
     return path.read_bytes()
 
 
-def atomic(path, content, private=False):
-    atomic_write(path, content, mode=0o600 if private else 0o644)
+def atomic(path, content, private=False, mode=None):
+    if mode is None:
+        mode = 0o600 if private else 0o644
+    atomic_write(path, content, mode=mode)
+
+
+def current_image(root, rel):
+    path = local(root, rel)
+    flags = os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0)
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        return None, None
+    with os.fdopen(fd, 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise WorkflowError('NOT_REGULAR_FILE', [rel])
+        if before.st_size > MAX_FILE:
+            raise WorkflowError('FILE_TOO_LARGE', [rel])
+        content = stream.read(MAX_FILE + 1)
+        after = os.fstat(stream.fileno())
+    if len(content) > MAX_FILE:
+        raise WorkflowError('FILE_TOO_LARGE', [rel])
+    if (before.st_mode, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_mode, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+        raise WorkflowError('CONCURRENT_EDIT', [rel])
+    return content, stat.S_IMODE(after.st_mode)
 
 
 def private_dir(root):
@@ -132,26 +156,30 @@ def adoption_valid(state):
 def lock(root, recovery=False):
     private_dir(root)
     path = local(root, '.yunxia/lock.json')
-    if recovery and path.exists():
-        old = read_json(path)
-        if not isinstance(old, dict) or type(old.get('pid')) is not int or old['pid'] <= 0:
-            raise WorkflowError('INVALID_LOCK')
+    with exclusive_guard(local(root, '.yunxia/lock.guard'), error_type=WorkflowError,
+                         code='LOCKED', paths=['.yunxia/lock.json']):
+        if recovery and path.exists():
+            old = read_json(path)
+            if not isinstance(old, dict) or type(old.get('pid')) is not int or old['pid'] <= 0:
+                raise WorkflowError('INVALID_LOCK')
+            try:
+                os.kill(old['pid'], 0)
+            except ProcessLookupError:
+                path.unlink()
+            except PermissionError:
+                pass
         try:
-            os.kill(old['pid'], 0)
-        except ProcessLookupError:
-            path.unlink()
-        except PermissionError:
-            pass
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        raise WorkflowError('LOCKED', ['.yunxia/lock.json']) from None
-    try:
-        with os.fdopen(fd, 'wb') as stream:
-            stream.write(encoded({'pid': os.getpid()}))
-        yield
-    finally:
-        path.unlink(missing_ok=True)
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            raise WorkflowError('LOCKED', ['.yunxia/lock.json']) from None
+        try:
+            with os.fdopen(fd, 'wb') as stream:
+                stream.write(encoded({'pid': os.getpid()}))
+                stream.flush()
+                os.fsync(stream.fileno())
+            yield
+        finally:
+            path.unlink(missing_ok=True)
 
 
 def restore(root):
@@ -161,27 +189,55 @@ def restore(root):
     journal = read_json(journal_path)
     if not isinstance(journal, dict) or not isinstance(journal.get('entries'), list):
         raise WorkflowError('INVALID_JOURNAL')
-    entries = []
+    def valid_mode(value):
+        return type(value) is int and 0 <= value <= 0o7777
+    entries, seen = [], set()
     for item in journal['entries']:
-        if not isinstance(item, dict) or set(item) != {'path', 'before', 'after'}:
+        fields = {'path', 'before', 'after'}
+        if not isinstance(item, dict) or set(item) not in (fields, fields | {'before_mode', 'after_mode'}):
             raise WorkflowError('INVALID_JOURNAL')
         rel = relative(item['path'])
-        if rel != STATE and not output_path(rel):
+        if rel in seen or (rel != STATE and not output_path(rel)):
             raise WorkflowError('INVALID_JOURNAL')
+        seen.add(rel)
         try:
             before = None if item['before'] is None else base64.b64decode(item['before'], validate=True)
             after = base64.b64decode(item['after'], validate=True)
         except (ValueError, TypeError):
             raise WorkflowError('INVALID_JOURNAL') from None
-        if current_bytes(root, rel) not in (before, after):
+        modes = 'before_mode' in item
+        before_mode, after_mode = item.get('before_mode'), item.get('after_mode')
+        if modes:
+            valid_before = before_mode is None if before is None else valid_mode(before_mode)
+            if not valid_before or not valid_mode(after_mode):
+                raise WorkflowError('INVALID_JOURNAL')
+        entries.append((rel, before, after, before_mode, after_mode, modes))
+
+    def checked_image(entry):
+        rel, before, after, before_mode, after_mode, modes = entry
+        try:
+            current = current_image(root, rel)
+        except WorkflowError as error:
+            if error.code == 'CONCURRENT_EDIT':
+                raise WorkflowError('RECOVERY_CONFLICT', [rel]) from None
+            raise
+        matches = current in ((before, before_mode), (after, after_mode)) if modes else current[0] in (before, after)
+        if not matches:
             raise WorkflowError('RECOVERY_CONFLICT', [rel])
-        entries.append((rel, before))
-    for rel, before in reversed(entries):
+        return current
+
+    for entry in entries:
+        checked_image(entry)
+    for entry in reversed(entries):
+        rel, before, after, before_mode, after_mode, modes = entry
+        current = checked_image(entry)
+        if current[0] == before and (not modes or current[1] == before_mode):
+            continue
         path = local(root, rel)
         if before is None:
             path.unlink(missing_ok=True)
         else:
-            atomic(path, before, private=rel.startswith('.yunxia/'))
+            atomic(path, before, private=rel.startswith('.yunxia/'), mode=before_mode)
     journal_path.unlink()
     return True
 
@@ -193,19 +249,23 @@ def transaction(root, updates, expected=None):
                 raise WorkflowError('CONCURRENT_EDIT', [rel])
     entries = []
     for rel, content in updates.items():
-        before = current_bytes(root, rel)
+        before, before_mode = current_image(root, rel)
+        if expected is not None and rel in expected and before != expected[rel]:
+            raise WorkflowError('CONCURRENT_EDIT', [rel])
         if before == content:
             continue
         entries.append({'path': rel,
                         'before': None if before is None else base64.b64encode(before).decode(),
-                        'after': base64.b64encode(content).decode()})
+                        'after': base64.b64encode(content).decode(),
+                        'before_mode': before_mode,
+                        'after_mode': 0o600 if rel.startswith('.yunxia/') else 0o644})
     if not entries:
         return []
     atomic(local(root, JOURNAL), encoded({'entries': entries}), private=True)
     try:
         for item in entries:
             before = None if item['before'] is None else base64.b64decode(item['before'])
-            if current_bytes(root, item['path']) != before:
+            if current_image(root, item['path']) != (before, item['before_mode']):
                 raise WorkflowError('CONCURRENT_EDIT', [item['path']])
             atomic(local(root, item['path']), base64.b64decode(item['after']),
                    private=item['path'].startswith('.yunxia/'))

@@ -1,18 +1,48 @@
 import json
+import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT/'tooling/src'))
-from yunxia.common import CatalogError, json_bytes, canonical_sha256, read_json, safe_path, atomic_write
+from yunxia.common import CatalogError, json_bytes, canonical_sha256, read_json, safe_path, atomic_write, exclusive_guard
 from yunxia.catalog import Catalog
 from yunxia.project import workflow
 
 
 class SharedDataChecks(unittest.TestCase):
+    def test_guard_excludes_other_processes_and_survives_owner_death(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'guard'
+            script="""
+import sys
+from pathlib import Path
+from yunxia.common import exclusive_guard
+with exclusive_guard(Path(sys.argv[1])):
+    print('acquired',flush=True)
+    sys.stdin.read()
+"""
+            env=dict(os.environ,PYTHONPATH=str(ROOT/'tooling/src'),PYTHONDONTWRITEBYTECODE='1')
+            process=subprocess.Popen([sys.executable,'-B','-c',script,str(path)],stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env)
+            try:
+                self.assertEqual(process.stdout.readline().strip(),'acquired')
+                inode=path.stat().st_ino
+                with self.assertRaises(CatalogError) as cm:
+                    with exclusive_guard(path):pass
+                self.assertEqual(cm.exception.code,'LOCKED')
+                process.kill();process.communicate(timeout=10)
+                with exclusive_guard(path):
+                    self.assertEqual(path.stat().st_ino,inode)
+                self.assertTrue(path.exists())
+            finally:
+                if process.poll() is None:process.kill()
+                process.communicate(timeout=10)
+
     def test_atomic_replace_failure_preserves_original_and_cleans_temporary_file(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp)/'record.json'

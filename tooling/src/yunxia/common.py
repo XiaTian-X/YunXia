@@ -1,5 +1,6 @@
 """Shared data and filesystem primitives; independent of catalog layouts."""
 import hashlib
+from contextlib import contextmanager
 import json
 import os
 from pathlib import PurePosixPath
@@ -11,6 +12,33 @@ class CatalogError(Exception):
     def __init__(self, code, paths=None):
         self.code, self.paths = code, paths or []
         super().__init__(code)
+
+
+@contextmanager
+def exclusive_guard(path, *, error_type=CatalogError, code='LOCKED', paths=None):
+    """Hold a nonblocking OS lock on a stable file for the whole operation.
+
+    The guard must never be removed: PID records may be recovered or replaced,
+    while this inode serializes both recovery and writers. Importing read-only
+    catalog operations remains possible on platforms without POSIX flock.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        raise error_type('FILE_LOCK_UNSUPPORTED', paths) from None
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0)
+    fd = os.open(path, flags, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise error_type(code, paths) from None
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 def sha256(content):

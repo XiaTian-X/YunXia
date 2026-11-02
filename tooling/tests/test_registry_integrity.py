@@ -2,6 +2,8 @@
 import copy
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -24,6 +26,10 @@ class RegistryIntegrity(unittest.TestCase):
         with self.assertRaises(CatalogError) as error:
             Catalog(self.root)
         self.assertEqual(error.exception.code, code)
+
+    def git(self, *args):
+        return subprocess.run(['git', '-C', str(self.root), *args], check=True,
+                              capture_output=True).stdout
 
     def rebind_imported_version(self):
         path = self.root/'registry/yunxia-license/0.9.2-draft.1.json'
@@ -56,6 +62,29 @@ class RegistryIntegrity(unittest.TestCase):
         self.reject('VERSION_IDENTITY_CHANGED')
         self.assertEqual(path.read_bytes(), original)
 
+    def test_merged_branch_cannot_hide_intermediate_version_rebinding(self):
+        git_commit(self.root, 'Initial version identities')
+        path = self.root/'registry/yunxia-license/0.9.2-draft.1.json'
+        original = path.read_bytes()
+        self.git('checkout', '-qb', 'rebound-side')
+        record = json.loads(original)
+        record['display_name'] = 'Invalid replacement of a fixed name'
+        path.write_bytes(json_bytes(record))
+        git_commit(self.root, 'Invalid identity on a side branch')
+        path.write_bytes(original)
+        git_commit(self.root, 'Restore identity before merging')
+        self.git('checkout', '-q', '-')
+        self.git('merge', '--no-ff', '-qm', 'Merge restored side branch', 'rebound-side')
+        self.reject('VERSION_IDENTITY_CHANGED')
+
+    def test_local_grafts_cannot_hide_committed_version_rebinding(self):
+        self.rebind_imported_version()
+        commit = git_commit(self.root, 'Invalid replacement of a fixed identity')
+        graft = self.root/'.git/info/grafts'
+        graft.write_text(commit+'\n')
+        self.reject('VERSION_IDENTITY_CHANGED')
+        self.assertEqual(graft.read_text(), commit+'\n')
+
     def test_committed_fixed_version_cannot_disappear_with_its_adapter(self):
         git_commit(self.root, 'Initial version identities')
         (self.root/'registry/yunxia-license/0.9.2-draft.1.json').unlink()
@@ -66,6 +95,49 @@ class RegistryIntegrity(unittest.TestCase):
         path.write_bytes(json_bytes(data))
         git_commit(self.root, 'Invalid removal of a historical version')
         self.reject('REGISTRY_RECORD_MISSING')
+
+    def test_merged_branch_cannot_hide_a_removed_registry_record(self):
+        git_commit(self.root, 'Initial version identities')
+        self.git('checkout', '-qb', 'removed-side')
+        path = self.root/'registry/yunxia-license/9.0.0-draft.1.json'
+        record = json.loads((path.parent/'0.9.2-draft.1.json').read_text())
+        record['version'] = path.stem
+        path.write_bytes(json_bytes(record))
+        git_commit(self.root, 'Add fixed identity on a side branch')
+        path.unlink()
+        git_commit(self.root, 'Remove fixed identity before merging')
+        self.git('checkout', '-q', '-')
+        self.git('merge', '--no-ff', '-qm', 'Merge removed record', 'removed-side')
+        self.reject('REGISTRY_RECORD_MISSING')
+
+    def test_registry_record_created_by_merge_cannot_disappear(self):
+        git_commit(self.root, 'Initial version identities')
+        self.git('checkout', '-qb', 'merge-side')
+        git_commit(self.root, 'Side branch snapshot')
+        self.git('checkout', '-q', '-')
+        git_commit(self.root, 'Main branch snapshot')
+        self.git('merge', '--no-ff', '--no-commit', 'merge-side')
+        path = self.root/'registry/yunxia-license/9.0.0-draft.1.json'
+        record = json.loads((path.parent/'0.9.2-draft.1.json').read_text())
+        record['version'] = path.stem
+        path.write_bytes(json_bytes(record))
+        git_commit(self.root, 'Create fixed identity in merge commit')
+        path.unlink()
+        git_commit(self.root, 'Remove merge-created fixed identity')
+        self.reject('REGISTRY_RECORD_MISSING')
+
+    def test_shallow_history_is_rejected_even_with_an_empty_current_registry(self):
+        for folder in ('registry', 'agreements'):
+            shutil.rmtree(self.root/folder)
+        (self.root/'tooling/src/yunxia/adapters/support.json').write_bytes(
+            json_bytes({'format_version': 1, 'supported': []}))
+        git_commit(self.root, 'Remove all current version records')
+        target = Path(self.temp.name)/'shallow'
+        subprocess.run(['git', 'clone', '--quiet', '--depth', '1', self.root.as_uri(),
+                        str(target)], check=True, capture_output=True)
+        with self.assertRaises(CatalogError) as error:
+            Catalog(target)
+        self.assertEqual(error.exception.code, 'GIT_HISTORY_INCOMPLETE')
 
     def test_publication_digests_must_describe_the_actual_candidate_and_assets(self):
         add_protocol(self.root, released=True)
@@ -177,6 +249,22 @@ class RegistryIntegrity(unittest.TestCase):
         del record['withdrawal']
         path.write_bytes(json_bytes(record))
         git_commit(self.root, 'Invalid deletion of an intermediate withdrawal')
+        self.reject('WITHDRAWAL_RECORD_CHANGED')
+
+    def test_merged_branch_cannot_hide_a_committed_withdrawal(self):
+        add_protocol(self.root, released=True)
+        git_commit(self.root, 'Published fixture')
+        path = self.root/'registry/fixture/1.0.0.json'
+        original = path.read_bytes()
+        self.git('checkout', '-qb', 'withdrawn-side')
+        lifecycle.withdraw(self.root, 'fixture', '1.0.0',
+                           {'date': '2026-11-02', 'confirmed_by': 'Fixture maintainer',
+                            'reason': 'Fictional withdrawal on a side branch'})
+        git_commit(self.root, 'Withdraw fixture on a side branch')
+        path.write_bytes(original)
+        git_commit(self.root, 'Remove withdrawal before merging')
+        self.git('checkout', '-q', '-')
+        self.git('merge', '--no-ff', '-qm', 'Merge hidden withdrawal', 'withdrawn-side')
         self.reject('WITHDRAWAL_RECORD_CHANGED')
 
     def test_malformed_historical_publication_is_a_structured_error(self):

@@ -2,6 +2,7 @@ import copy
 import json
 from pathlib import Path
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
@@ -175,6 +176,33 @@ class Units(unittest.TestCase):
             self.assertEqual((self.root/w.STATE).read_bytes(),before_state)
             self.assertEqual((self.root/output).read_bytes(),before_output)
             self.assertTrue(w.verify(self.root)['structure_valid'])
+
+    def test_named_unit_interrupted_recovery_can_retry_without_touching_other_unit(self):
+        self.adopt('code','src','src/a.py');self.adopt('docs','docs','docs/a.md')
+        docs_state=(self.root/'.yunxia/units/docs/state.json').read_bytes()
+        with w.using_unit('code'):
+            state_path=self.root/w.STATE
+            output='licenses/code/PROJECT-RIGHTS.md';path=self.root/output
+            path.chmod(0o640)
+            before_state=state_path.read_bytes();before_output=path.read_bytes()
+            real=w.atomic
+            def interrupted(path,content,private=False,mode=None):
+                real(path,content,private,mode)
+                if path==state_path:raise KeyboardInterrupt()
+            with w.lock(self.root),patch.object(w,'atomic',side_effect=interrupted),self.assertRaises(KeyboardInterrupt):
+                w.transaction(self.root,{output:b'interrupted output',w.STATE:b'interrupted state'})
+            journal=(self.root/w.JOURNAL).read_bytes()
+            with w.lock(self.root,recovery=True),patch.object(w,'atomic',side_effect=interrupted),self.assertRaises(KeyboardInterrupt):
+                w.restore(self.root)
+            self.assertEqual(state_path.read_bytes(),before_state)
+            self.assertEqual(path.read_bytes(),b'interrupted output')
+            self.assertEqual((self.root/w.JOURNAL).read_bytes(),journal)
+            with w.lock(self.root,recovery=True):self.assertTrue(w.restore(self.root))
+            self.assertEqual(path.read_bytes(),before_output)
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode),0o640)
+            self.assertFalse((self.root/w.JOURNAL).exists())
+            self.assertTrue(w.verify(self.root)['structure_valid'])
+        self.assertEqual((self.root/'.yunxia/units/docs/state.json').read_bytes(),docs_state)
 
 
 if __name__=='__main__':unittest.main()

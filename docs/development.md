@@ -8,7 +8,7 @@ make build
 make skill-install
 ```
 
-维护与构建需要可取得登记对象的Git仓库；GitHub发布渠道另需已认证的gh。Python核心使用标准库，完整测试的JSON Schema契约检查使用jsonschema。测试只创建临时Git仓库和模拟发布端，不对真实仓库发布协议。
+写入、构建、安装和恢复需要支持POSIX文件锁的系统（如macOS/Linux）；不支持时明确返回FILE_LOCK_UNSUPPORTED，只读目录查询不加载该锁实现。维护与构建需要可取得登记对象的Git仓库；GitHub发布渠道另需已认证的gh。Python核心使用标准库，完整测试的JSON Schema契约检查使用jsonschema。测试只创建临时Git仓库和模拟发布端，不对真实仓库发布协议。
 
 make check检查registry结构、完整来源引用、固定摘要、当前审阅材料、本地链接及回归测试，不自动刷新期望摘要。make build按本次固定输入快照读取Git正文，生成dist/skills/yunxia。BUILD.json覆盖独立包中的文件集合，复制结果须逐项匹配输入；缺少资产、额外文件、符号链接或并发混合输入不能替换前一份构建。
 
@@ -29,3 +29,5 @@ python3 -B tooling/yunxia.py adapter --agreement AGREEMENT --version VERSION --o
 测试夹具按当前格式生成真实Git对象。覆盖固定来源、审阅失效、版本更新、发布中断/重试、离线包完整性、多单元采用及项目事务恢复。敏感材料、原始备份、环境、缓存、发布执行临时数据、构建产物和检查报告由.gitignore排除。
 
 维护命令异常中断留下锁时，使用`python3 -B tooling/yunxia.py recover-maintenance`回收不存在进程的锁。活跃或格式损坏的锁不会自动删除。发布流程用相同输入核验重试；项目材料写入中断则按[状态与事务恢复](../skills/yunxia/references/recovery.md)处理，两者不能混用。
+
+维护锁使用保留的`.yunxia-maintenance.guard`文件作为互斥载体，项目使用`.yunxia/lock.guard`；这些文件已被忽略，不是需要提交或删除的缓存。PID记录仍用于判断中断与显式恢复，恢复过程也持有同一进程锁。

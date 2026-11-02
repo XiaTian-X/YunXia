@@ -805,6 +805,16 @@
       "license_text_changed": false,
       "formal_release_created": false,
       "formal_adoption_created": false
+    },
+    {
+      "date": "2026-11-02",
+      "tool_version": "0.5.1",
+      "request": "独立全面复审Git取材、registry、发布恢复与离线Skill，直接修复后提交推送。",
+      "backup_name": "2026-11-02-independent-audit-81ejpd4v",
+      "work": "补齐合并历史与grafts隔离、发布依赖及回执验证、公共进程锁和逐文件恢复保护；保留正文及既有引用。",
+      "license_text_changed": false,
+      "formal_release_created": false,
+      "formal_adoption_created": false
     }
   ]
 }

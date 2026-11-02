@@ -224,6 +224,25 @@ class Lifecycle(unittest.TestCase):
             self.assertTrue(life.recover_lock(self.root)['lock_recovered'])
         self.assertFalse((self.root/'.yunxia-maintenance.lock').exists())
 
+    def test_recovery_serializes_pid_check_and_removal_with_all_other_owners(self):
+        path=self.root/'.yunxia-maintenance.lock'
+        path.write_bytes(life.encoded({'pid':123456789}))
+        def dead_pid(pid,signal):
+            self.error('MAINTENANCE_LOCKED',life.recover_lock,self.root)
+            with self.assertRaises(CatalogError) as cm:
+                with life.locked(self.root):pass
+            self.assertEqual(cm.exception.code,'MAINTENANCE_LOCKED')
+            raise ProcessLookupError
+        with patch.object(life.os,'kill',side_effect=dead_pid):
+            self.assertTrue(life.recover_lock(self.root)['lock_recovered'])
+        guard=self.root/'.yunxia-maintenance.guard'
+        inode=guard.stat().st_ino
+        with life.locked(self.root):
+            self.error('MAINTENANCE_LOCKED',life.recover_lock,self.root)
+            self.assertTrue(path.exists())
+        self.assertEqual(guard.stat().st_ino,inode)
+        self.assertFalse(path.exists())
+
     def test_cli_full_lifecycle_commands_do_not_need_skill_install(self):
         p=subprocess.run([sys.executable,'-B',str(ROOT/'tooling/yunxia.py'),'agreement','--repository',str(self.root),'inspect','--id','fixture'],capture_output=True,text=True)
         self.assertEqual(p.returncode,0,p.stdout+p.stderr)

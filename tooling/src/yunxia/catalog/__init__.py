@@ -3,7 +3,7 @@ from pathlib import Path
 import os
 import re
 from datetime import date
-from ..common import CatalogError, read_json, safe_path, sha256, segment, canonical_sha256, valid_relative_path, parse_json, json_bytes
+from ..common import CatalogError, safe_path, sha256, segment, canonical_sha256, valid_relative_path, parse_json, json_bytes
 from .. import gitstore
 
 REFERENCE_KEYS = {'agreement_id', 'version', 'sha256'}
@@ -109,14 +109,6 @@ def default_root():
     raise CatalogError('CATALOG_NOT_FOUND')
 
 
-def support_file():
-    return Path(__file__).resolve().parents[1] / 'adapters/support.json'
-
-
-def supports(path=None):
-    return validate_supports(read_json(path or support_file()))
-
-
 def validate_supports(data):
     if not isinstance(data, dict) or type(data.get('format_version')) is not int or data['format_version'] != 1 or not isinstance(data.get('supported'), list):
         raise CatalogError('ADAPTER_REGISTRY_FORMAT')
@@ -145,14 +137,19 @@ class Catalog:
             marker=self._json('BUNDLE.json')
             if not isinstance(marker,dict) or type(marker.get('format_version')) is not int or marker['format_version']!=1:
                 raise CatalogError('BUNDLE_FORMAT')
-            self.bundle_snapshot=marker.get('snapshot_sha256')
-            if not isinstance(self.bundle_snapshot,str) or not re.fullmatch('[0-9a-f]{64}',self.bundle_snapshot): raise CatalogError('BUNDLE_FORMAT')
+            bundle_snapshot=marker.get('snapshot_sha256')
+            if not isinstance(bundle_snapshot,str) or not re.fullmatch('[0-9a-f]{64}',bundle_snapshot): raise CatalogError('BUNDLE_FORMAT')
             adapter_data=self._json('adapters.json')
         else:
             adapter_path='tooling/src/yunxia/adapters/support.json'
             adapter_data=self._json(adapter_path) if safe_path(self.root,adapter_path).exists() else {'format_version':1,'supported':[]}
         registry=validate_supports(adapter_data)
         self.adapter_data=adapter_data
+        if not self.bundled and gitstore.run(self.root,['rev-parse','--verify','HEAD^{commit}'],False).returncode==0:
+            self._head=gitstore.head(self.root)
+            # Even an empty current registry can conceal records behind a shallow boundary.
+            if gitstore.run(self.root,['rev-parse','--is-shallow-repository']).stdout.strip()!=b'false':
+                raise CatalogError('GIT_HISTORY_INCOMPLETE')
         bases=[]
         for family in child_directories(self.root,'registry'):
             for p in sorted(family.iterdir()):
@@ -188,12 +185,12 @@ class Catalog:
             except CatalogError as error:raise CatalogError(error.code,[rel]) from None
         for row in registry:self.resolve(row['agreement'])
         self._publication_bindings()
-        if not self.bundled and gitstore.run(self.root,['rev-parse','--verify','HEAD'],False).returncode==0:
-            historical=gitstore.run(self.root,['log','--format=','--name-only','--diff-filter=A','--','registry']).stdout.decode().splitlines()
+        if not self.bundled and self._head is not None:
+            # Follow every parent and include merge-created records, even if later removed.
+            historical=gitstore.run(self.root,['log','--full-history','-m','--no-renames','--format=','--name-only','--diff-filter=A',self._head,'--','registry']).stdout.decode().splitlines()
             for rel in set(historical):
                 if re.fullmatch(r'registry/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\.json',rel) and rel not in self.inputs:
                     raise CatalogError('REGISTRY_RECORD_MISSING',[rel])
-        self.paths=set(self.inputs)
         if self.bundled:
             expected=self.export_files()
             actual={p.relative_to(self.root).as_posix() for p in self.root.rglob('*') if p.is_file()}
@@ -226,6 +223,8 @@ class Catalog:
     def _add(self,m,rel,aid,version,registry,bases):
         allowed={'format_version','agreement_id','version','sha256','display_name','kind','status','publication','files','source','notes','review','withdrawal'}
         if not isinstance(m,dict) or type(m.get('format_version')) is not int or m['format_version']!=2:raise CatalogError('RELEASE_FORMAT',[rel])
+        required=allowed-{'notes','review','withdrawal'}
+        if not required<=m.keys():raise CatalogError('RELEASE_FORMAT',[rel])
         if {'renderer','capabilities','output_name'}&m.keys():raise CatalogError('RELEASE_CONTAINS_ADAPTER_CONFIG',[rel])
         if m.keys()-allowed:raise CatalogError('RELEASE_FORMAT',[rel])
         ref=reference(m)
@@ -280,18 +279,16 @@ class Catalog:
         capabilities=['inspect']
         if match and m['status']!='prepared':
             capabilities+=['verify'] if withdrawal else ['draft','adopt','verify']
-        self.entries.append(dict(m,_text=body,_payload=payload,_manifest=rel,_text_path=source['files']['text.txt'],
+        self.entries.append(dict(m,_text=body,_payload=payload,_manifest=rel,
             _package_sha256=canonical_sha256({k:sha256(v) for k,v in payload.items()}),renderer=match['adapter'] if match else None,
             capabilities=capabilities,output_name=match['output_name'] if match else None))
         if not self.bundled:self._frozen_record(m,rel)
 
     def _frozen_record(self,m,rel):
-        """Compare with the first committed identity, including already committed edits."""
+        """Preserve every reachable committed fact, including merged side branches."""
         if self._head is None:
             self._head=gitstore.head(self.root)
-            if gitstore.run(self.root,['rev-parse','--is-shallow-repository']).stdout.strip()!=b'false':
-                raise CatalogError('GIT_HISTORY_INCOMPLETE')
-        commits=gitstore.run(self.root,['log','--format=%H',self._head,'--',rel]).stdout.decode().splitlines()
+        commits=gitstore.run(self.root,['log','--full-history','--format=%H',self._head,'--',rel]).stdout.decode().splitlines()
         fixed={'format_version','agreement_id','version','sha256','display_name','kind','source','files','notes','review'}
         transitions={'imported-draft':{'imported-draft'},'candidate':{'candidate'},'prepared':{'prepared','released'},'released':{'released'}}
         for commit in commits:

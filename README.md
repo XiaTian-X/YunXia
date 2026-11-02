@@ -29,9 +29,9 @@
 | 已收录协议 | [允夏许可证](agreements/yunxia-license/README.md) |
 | 当前工作正文 | [0.9.3 审阅草案](agreements/yunxia-license/text.txt) |
 | 正式发布版本 | 暂无 |
-| 维护工具与 Skill | 0.5.0 |
+| 维护工具与 Skill | 0.5.1 |
 | 项目采用状态格式 | 仅支持格式 3 |
-| 运行环境 | Python 3.11 或以上 |
+| 运行环境 | Python 3.11 或以上；写入与恢复需要 macOS/Linux 等支持 POSIX 文件锁的系统 |
 
 `registry/` 登记三份标记为 `imported-draft` 的历史草案，按完整 Git 提交与文件路径读取固定正文。其中 `0.9.3-draft.2` 对应当前命名草案；原版本号、正文摘要和草案身份保持不变，迁移没有创建正式发布。工作树不再保存重复的历版正文目录。
 

@@ -1,4 +1,4 @@
-"""Exact Git object reads. No checkout, filters, historical code or replace refs."""
+"""Exact Git object reads. No checkout, filters, historical code or rewritten ancestry."""
 import os
 import re
 import subprocess
@@ -11,7 +11,7 @@ MAX_BLOB = 64 * 1024 * 1024
 def run(root, args, check=True):
     env = {k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
     env.update(GIT_NO_REPLACE_OBJECTS='1', GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull,
-               GIT_TERMINAL_PROMPT='0', GIT_NO_LAZY_FETCH='1')
+               GIT_TERMINAL_PROMPT='0', GIT_NO_LAZY_FETCH='1', GIT_GRAFT_FILE=os.devnull)
     result = subprocess.run(['git','--no-replace-objects','--literal-pathspecs','-C',str(root),*args],
                             capture_output=True, env=env)
     if check and result.returncode:

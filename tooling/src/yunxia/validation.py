@@ -3,7 +3,7 @@ import re
 import subprocess
 import sys
 from urllib.parse import unquote
-from .catalog import Catalog, supports
+from .catalog import Catalog
 from .common import CatalogError, read_json
 from .lifecycle import inspect
 
@@ -16,8 +16,6 @@ def check(root, run_tests=False):
         result=inspect(root,p.parent.name)
         agreements.append({'id':p.parent.name,'stage':result['agreement']['stage'],
                            'review_current_and_approved':result['review_current_and_approved']})
-    for row in supports(root/'tooling/src/yunxia/adapters/support.json'):
-        catalog.resolve(row['agreement'])
     source_dirs=('docs','agreements','registry','tooling','skills')
     paths=[root/'README.md',root/'CHANGELOG.md']
     for directory in source_dirs:

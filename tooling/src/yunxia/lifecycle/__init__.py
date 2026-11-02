@@ -7,7 +7,7 @@ import shutil
 import tempfile
 from ..catalog import Catalog, reference, validate_reference, validate_review_record, validate_review_dependencies
 from .. import gitstore
-from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded, atomic_write, canonical_sha256, parse_json
+from ..common import CatalogError, read_json, safe_path, segment, sha256, json_bytes as encoded, atomic_write, canonical_sha256, parse_json, exclusive_guard
 
 
 def write(path, content):
@@ -17,29 +17,31 @@ def write(path, content):
 @contextmanager
 def locked(root):
     p = safe_path(root, '.yunxia-maintenance.lock')
-    try:
-        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        raise CatalogError('MAINTENANCE_LOCKED') from None
-    with os.fdopen(fd,'wb') as stream:
-        stream.write(encoded({'pid':os.getpid()}));stream.flush();os.fsync(stream.fileno())
-    try:
-        yield
-    finally:
-        p.unlink()
+    with exclusive_guard(safe_path(root, '.yunxia-maintenance.guard'), code='MAINTENANCE_LOCKED'):
+        try:
+            fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            raise CatalogError('MAINTENANCE_LOCKED') from None
+        try:
+            with os.fdopen(fd,'wb') as stream:
+                stream.write(encoded({'pid':os.getpid()}));stream.flush();os.fsync(stream.fileno())
+            yield
+        finally:
+            p.unlink()
 
 
 def recover_lock(root):
     p=safe_path(root,'.yunxia-maintenance.lock')
-    if not p.exists():return {'lock_recovered':False}
-    value=read_json(p)
-    if not isinstance(value,dict) or type(value.get('pid')) is not int or value['pid']<=0:
-        raise CatalogError('MAINTENANCE_LOCK_INVALID',[str(p)])
-    try:os.kill(value['pid'],0)
-    except ProcessLookupError:
-        p.unlink();return {'lock_recovered':True}
-    except PermissionError:pass
-    raise CatalogError('MAINTENANCE_LOCKED',[str(p)])
+    with exclusive_guard(safe_path(root, '.yunxia-maintenance.guard'), code='MAINTENANCE_LOCKED'):
+        if not p.exists():return {'lock_recovered':False}
+        value=read_json(p)
+        if not isinstance(value,dict) or type(value.get('pid')) is not int or value['pid']<=0:
+            raise CatalogError('MAINTENANCE_LOCK_INVALID',[str(p)])
+        try:os.kill(value['pid'],0)
+        except ProcessLookupError:
+            p.unlink();return {'lock_recovered':True}
+        except PermissionError:pass
+        raise CatalogError('MAINTENANCE_LOCKED',[str(p)])
 
 
 def valid_id(value):

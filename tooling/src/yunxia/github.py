@@ -6,7 +6,23 @@ import subprocess
 import tempfile
 from pathlib import Path
 from urllib.parse import quote
-from .common import CatalogError
+from .common import CatalogError, parse_json
+
+
+def validate_release(value):
+    if (not isinstance(value, dict) or type(value.get('id')) is not int or value['id'] <= 0
+            or not isinstance(value.get('tag_name'), str) or not value['tag_name'].strip()
+            or type(value.get('draft')) is not bool
+            or not isinstance(value.get('html_url'), str) or not value['html_url'].strip()):
+        raise CatalogError('GITHUB_RESPONSE_INVALID')
+    return value
+
+
+def validate_asset(value):
+    if (not isinstance(value, dict) or type(value.get('id')) is not int or value['id'] <= 0
+            or not isinstance(value.get('name'), str) or not value['name']):
+        raise CatalogError('GITHUB_RESPONSE_INVALID')
+    return value
 
 
 class GitHub:
@@ -27,7 +43,7 @@ class GitHub:
         result = subprocess.run(command, input=data, capture_output=True)
         if result.returncode:
             try:
-                error = json.loads(result.stdout)
+                error = parse_json(result.stdout)
             except (ValueError, UnicodeError):
                 error = {}
             if missing and isinstance(error,dict) and str(error.get('status')) == '404':
@@ -36,7 +52,7 @@ class GitHub:
         if binary:
             return result.stdout
         try:
-            response=json.loads(result.stdout)
+            response=parse_json(result.stdout)
             if not isinstance(response,(dict,list)):raise ValueError()
             return response
         except (ValueError, UnicodeError):
@@ -51,6 +67,12 @@ class GitHub:
         if content != expected:
             raise CatalogError('PUBLICATION_REGISTRY_NOT_PUSHED', [path])
 
+    def verify_source(self, commit):
+        record=self.api(self.base+'/git/commits/'+commit,missing=True)
+        if record is None:raise CatalogError('PUBLICATION_SOURCE_NOT_PUSHED',[commit])
+        if not isinstance(record,dict) or record.get('sha')!=commit:
+            raise CatalogError('GITHUB_RESPONSE_INVALID')
+
     def tag_commit(self, tag):
         result = self.api(self.base + '/git/ref/tags/' + quote(tag, safe='/'), missing=True)
         if result is None:
@@ -60,7 +82,9 @@ class GitHub:
         for _ in range(8):
             if not isinstance(obj,dict):raise CatalogError('GITHUB_RESPONSE_INVALID')
             if obj.get('type') == 'commit':
-                return obj.get('sha')
+                if not re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', str(obj.get('sha'))):
+                    raise CatalogError('GITHUB_RESPONSE_INVALID')
+                return obj['sha']
             if obj.get('type') != 'tag' or not re.fullmatch(r'[0-9a-f]{40,64}', str(obj.get('sha'))):
                 break
             record=self.api(self.base + '/git/tags/' + obj['sha'])
@@ -72,8 +96,7 @@ class GitHub:
         actual = self.tag_commit(tag)
         if actual is None:
             # The source object must already have been pushed by the maintainer.
-            if self.api(self.base + '/git/commits/' + commit, missing=True) is None:
-                raise CatalogError('PUBLICATION_SOURCE_NOT_PUSHED')
+            self.verify_source(commit)
             self.api(self.base + '/git/refs', 'POST', {'ref': 'refs/tags/' + tag, 'sha': commit})
             actual = self.tag_commit(tag)
         if actual != commit:
@@ -86,33 +109,36 @@ class GitHub:
             entries = self.api(self.base + f'/releases?per_page=100&page={page}')
             if not isinstance(entries, list) or any(not isinstance(row,dict) for row in entries):
                 raise CatalogError('GITHUB_RESPONSE_INVALID')
+            for row in entries:validate_release(row)
             matches = [row for row in entries if row.get('tag_name') == tag]
             if len(matches) > 1:
                 raise CatalogError('PUBLICATION_RELEASE_CONFLICT')
             if matches:
-                return matches[0]
+                return validate_release(matches[0])
             if len(entries) < 100:
                 return None
             page += 1
 
     def create_draft(self, tag, commit, title, notes):
-        return self.api(self.base + '/releases', 'POST', {
+        return validate_release(self.api(self.base + '/releases', 'POST', {
             'tag_name': tag, 'target_commitish': commit, 'name': title,
-            'body': notes, 'draft': True, 'prerelease': False, 'make_latest': 'false'})
+            'body': notes, 'draft': True, 'prerelease': False, 'make_latest': 'false'}))
 
     def assets(self, release):
+        validate_release(release)
         result = []
         page = 1
         while True:
             rows = self.api(self.base + f"/releases/{release['id']}/assets?per_page=100&page={page}")
             if not isinstance(rows, list) or any(not isinstance(row,dict) for row in rows):
                 raise CatalogError('GITHUB_RESPONSE_INVALID')
-            result.extend(rows)
+            result.extend(validate_asset(row) for row in rows)
             if len(rows) < 100:
                 return result
             page += 1
 
     def download(self, asset):
+        validate_asset(asset)
         return self.api(self.base + f"/releases/assets/{asset['id']}", binary=True)
 
     def upload(self, tag, name, content):
@@ -125,4 +151,5 @@ class GitHub:
                 raise CatalogError('GITHUB_UPLOAD_UNCERTAIN', [name])
 
     def publish(self, release):
-        return self.api(self.base + f"/releases/{release['id']}", 'PATCH', {'draft': False, 'make_latest': 'false'})
+        validate_release(release)
+        return validate_release(self.api(self.base + f"/releases/{release['id']}", 'PATCH', {'draft': False, 'make_latest': 'false'}))

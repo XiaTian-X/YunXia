@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -316,15 +317,17 @@ class YunXiaWorkflow(unittest.TestCase):
     def test_atomic_failure_rolls_back_existing_and_new_files(self):
         self.adopt()
         old = (self.root / 'PROJECT-RIGHTS.md').read_bytes()
+        (self.root / 'PROJECT-RIGHTS.md').chmod(0o600)
         real_atomic = yx.atomic
-        def one_failure(path, content, private=False):
+        def one_failure(path, content, private=False, mode=None):
             if path.name == 'AI-USAGE.md':
                 raise OSError('simulated disk failure')
-            return real_atomic(path, content, private)
+            return real_atomic(path, content, private, mode)
         with yx.lock(self.root), patch.object(yx, 'atomic', side_effect=one_failure):
             with self.assertRaises(OSError):
                 yx.transaction(self.root, {'PROJECT-RIGHTS.md': b'new', 'AI-USAGE.md': b'new'})
         self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_bytes(), old)
+        self.assertEqual(stat.S_IMODE((self.root / 'PROJECT-RIGHTS.md').stat().st_mode), 0o600)
         self.assertFalse((self.root / 'AI-USAGE.md').exists())
         self.assertFalse((self.root / yx.JOURNAL).exists())
 
@@ -354,11 +357,114 @@ class YunXiaWorkflow(unittest.TestCase):
         self.assert_error('RECOVERY_CONFLICT', yx.restore, self.root)
         self.assertEqual((self.root / rel).read_text(), 'manual edit')
 
+    def test_partial_recovery_preserves_a_new_manual_edit_and_can_retry(self):
+        self.adopt()
+        rights = self.root / 'PROJECT-RIGHTS.md'
+        rights.chmod(0o600)
+        before_rights = rights.read_bytes()
+        state_path = self.root / yx.STATE
+        before_state = state_path.read_bytes()
+        real = yx.atomic
+        def interrupted(path, content, private=False, mode=None):
+            real(path, content, private, mode)
+            if path == state_path:
+                raise KeyboardInterrupt()
+        with yx.lock(self.root), patch.object(yx, 'atomic', side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                yx.transaction(self.root, {'PROJECT-RIGHTS.md': b'new rights', yx.STATE: b'new state'})
+        journal = (self.root / yx.JOURNAL).read_bytes()
+        def manual_edit_during_restore(path, content, private=False, mode=None):
+            real(path, content, private, mode)
+            if path == state_path:
+                rights.write_bytes(b'concurrent manual edit')
+        with yx.lock(self.root, recovery=True), patch.object(yx, 'atomic', side_effect=manual_edit_during_restore):
+            self.assert_error('RECOVERY_CONFLICT', yx.restore, self.root)
+        self.assertEqual(state_path.read_bytes(), before_state)
+        self.assertEqual(rights.read_bytes(), b'concurrent manual edit')
+        self.assertEqual((self.root / yx.JOURNAL).read_bytes(), journal)
+        # Restore the recorded interrupted image after resolving the human edit.
+        rights.write_bytes(b'new rights'); rights.chmod(0o644)
+        with yx.lock(self.root, recovery=True):
+            self.assertTrue(yx.restore(self.root))
+        self.assertEqual(rights.read_bytes(), before_rights)
+        self.assertEqual(stat.S_IMODE(rights.stat().st_mode), 0o600)
+        self.assertFalse((self.root / yx.JOURNAL).exists())
+        self.assertTrue(yx.verify(self.root)['structure_valid'])
+
+    def test_recovery_preserves_mode_only_edits_and_original_permissions(self):
+        self.adopt()
+        rights = self.root / 'PROJECT-RIGHTS.md'
+        rights.chmod(0o640)
+        original = rights.read_bytes()
+        real = yx.atomic
+        def interrupted(path, content, private=False, mode=None):
+            real(path, content, private, mode)
+            if path == rights:
+                raise KeyboardInterrupt()
+        with yx.lock(self.root), patch.object(yx, 'atomic', side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                yx.transaction(self.root, {'PROJECT-RIGHTS.md': b'new rights'})
+        journal = (self.root / yx.JOURNAL).read_bytes()
+        rights.chmod(0o600)
+        with yx.lock(self.root, recovery=True):
+            self.assert_error('RECOVERY_CONFLICT', yx.restore, self.root)
+        self.assertEqual(rights.read_bytes(), b'new rights')
+        self.assertEqual(stat.S_IMODE(rights.stat().st_mode), 0o600)
+        self.assertEqual((self.root / yx.JOURNAL).read_bytes(), journal)
+        rights.chmod(0o644)
+        with yx.lock(self.root, recovery=True):
+            self.assertTrue(yx.restore(self.root))
+        self.assertEqual(rights.read_bytes(), original)
+        self.assertEqual(stat.S_IMODE(rights.stat().st_mode), 0o640)
+
+    def test_legacy_journal_without_permissions_still_recovers(self):
+        self.scan()
+        rel = '.yunxia/draft/PROJECT-RIGHTS.md'
+        self.write(rel, 'interrupted generation')
+        journal = {'entries': [{'path': rel, 'before': base64.b64encode(b'old draft').decode(),
+                                'after': base64.b64encode(b'interrupted generation').decode()}]}
+        self.write(yx.JOURNAL, json.dumps(journal))
+        with yx.lock(self.root, recovery=True):
+            self.assertTrue(yx.restore(self.root))
+        self.assertEqual((self.root / rel).read_bytes(), b'old draft')
+        self.assertEqual(stat.S_IMODE((self.root / rel).stat().st_mode), 0o600)
+
+    def test_invalid_journal_modes_cannot_overwrite_files(self):
+        self.scan()
+        self.write('PROJECT-RIGHTS.md', 'new rights')
+        for before_mode, after_mode in ((True, 0o644), (0o600, -1), (0o600, 0o10000), (None, 0o644)):
+            with self.subTest(before_mode=before_mode, after_mode=after_mode):
+                journal = {'entries': [{'path': 'PROJECT-RIGHTS.md',
+                                        'before': base64.b64encode(b'old rights').decode(),
+                                        'after': base64.b64encode(b'new rights').decode(),
+                                        'before_mode': before_mode, 'after_mode': after_mode}]}
+                self.write(yx.JOURNAL, json.dumps(journal))
+                self.assert_error('INVALID_JOURNAL', yx.restore, self.root)
+                self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_text(), 'new rights')
+
     def test_lock_prevents_concurrent_writer(self):
         with yx.lock(self.root):
             result = self.cli('scan')
         self.assertEqual(result.returncode, 2)
         self.assertEqual(json.loads(result.stdout)['error'], 'LOCKED')
+
+    def test_recovery_guard_blocks_a_second_process_before_pid_probe(self):
+        yx.private_dir(self.root)
+        lock_path = self.root / '.yunxia/lock.json'
+        lock_path.write_bytes(yx.encoded({'pid': 99999999}))
+        calls = []
+        def dead_owner(pid, signal):
+            contender = self.cli('recover')
+            calls.append(contender)
+            raise ProcessLookupError()
+        with patch.object(yx.os, 'kill', side_effect=dead_owner):
+            with yx.lock(self.root, recovery=True):
+                self.assertEqual(json.loads(lock_path.read_text())['pid'], os.getpid())
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].returncode, 2)
+        self.assertEqual(json.loads(calls[0].stdout)['error'], 'LOCKED')
+        self.assertFalse(lock_path.exists())
+        self.assertTrue((self.root / '.yunxia/lock.guard').is_file())
 
     def test_artifact_detects_missing_license_and_private_state(self):
         self.adopt()
@@ -711,6 +817,41 @@ class YunXiaWorkflow(unittest.TestCase):
             self.assert_error('CONCURRENT_EDIT', self.generate, 'adopt')
         self.assertEqual((self.root / 'PROJECT-RIGHTS.md').read_text(), 'concurrent human edit')
         self.assertEqual((self.root / yx.STATE).read_bytes(), state_before)
+
+    def test_concurrent_edit_after_expected_check_is_not_adopted_as_before_image(self):
+        self.adopt()
+        rights = self.root / 'PROJECT-RIGHTS.md'
+        original = rights.read_bytes()
+        real = yx.current_bytes
+        reads = 0
+        def edit_after_check(root, rel):
+            nonlocal reads
+            content = real(root, rel)
+            reads += 1
+            if reads == 1:
+                rights.write_bytes(b'concurrent human edit')
+            return content
+        with yx.lock(self.root), patch.object(yx, 'current_bytes', side_effect=edit_after_check):
+            self.assert_error('CONCURRENT_EDIT', yx.transaction, self.root,
+                              {'PROJECT-RIGHTS.md': b'new output'}, {'PROJECT-RIGHTS.md': original})
+        self.assertEqual(rights.read_bytes(), b'concurrent human edit')
+        self.assertFalse((self.root / yx.JOURNAL).exists())
+
+    def test_before_image_keeps_bytes_and_mode_from_the_same_open_file(self):
+        self.write('PROJECT-RIGHTS.md', 'old content')
+        path = self.root / 'PROJECT-RIGHTS.md'; path.chmod(0o600)
+        replacement = self.root / 'replacement'; replacement.write_bytes(b'new content'); replacement.chmod(0o644)
+        real = os.open
+        def replace_after_open(target, flags, *args, **kwargs):
+            fd = real(target, flags, *args, **kwargs)
+            if Path(target) == path:
+                replacement.replace(path)
+            return fd
+        with patch.object(yx.os, 'open', side_effect=replace_after_open):
+            content, mode = yx.current_image(self.root, 'PROJECT-RIGHTS.md')
+        self.assertEqual((content, mode), (b'old content', 0o600))
+        self.assertEqual(path.read_bytes(), b'new content')
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
 
     def test_directory_and_zip_reject_content_outside_prefix_consistently(self):
         self.adopt()
